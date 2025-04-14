@@ -1,51 +1,39 @@
 import streamlit as st
 import os
+import yaml
 
-st.set_page_config(page_title="Admin File Manager", layout="wide")
-st.title("Admin: Evidence File Manager")
+st.set_page_config(page_title="Admin Manager", layout="wide")
+st.title("Manage Uploaded Evidence")
 
 EVIDENCE_DIR = "evidence"
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-def list_pairs():
-    files = os.listdir(EVIDENCE_DIR)
-    yaml_files = sorted(f for f in files if f.endswith("_entities.yaml"))
-    entries = []
-    for yml in yaml_files:
-        base = yml.replace("_entities.yaml", "")
-        pdf = base + ".pdf"
-        pdf_path = os.path.join(EVIDENCE_DIR, pdf)
-        yml_path = os.path.join(EVIDENCE_DIR, yml)
-        entries.append({
-            "base": base,
-            "pdf": pdf,
-            "yml": yml,
-            "pdf_exists": os.path.exists(pdf_path),
-            "pdf_path": pdf_path,
-            "yml_path": yml_path,
-        })
-    return entries
+all_files = sorted(os.listdir(EVIDENCE_DIR))
+yaml_files = [f for f in all_files if f.endswith("_entities.yaml")]
 
-cases = list_pairs()
-
-if not cases:
+if not yaml_files:
     st.info("No evidence files found.")
     st.stop()
 
-for entry in cases:
-    st.markdown(f"### `{entry['yml']}`")
-    if entry["pdf_exists"]:
-        st.markdown(f"- PDF: `{entry['pdf']}`")
-    else:
-        st.markdown(f"- PDF: ❌ Missing")
+for fname in yaml_files:
+    base = fname.replace("_entities.yaml", "")
+    pdf_path = os.path.join(EVIDENCE_DIR, base + ".pdf")
+    yaml_path = os.path.join(EVIDENCE_DIR, fname)
 
-    with st.expander("Delete This Case?"):
-        if st.button(f"🗑️ Delete `{entry['base']}`", key=entry['base']):
-            try:
-                os.remove(entry["yml_path"])
-                if entry["pdf_exists"]:
-                    os.remove(entry["pdf_path"])
-                st.success(f"Deleted `{entry['base']}`")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Error deleting files: {e}")
-    st.markdown("---")
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        doc = data.get("document", base + ".pdf")
+        tx_count = len(data.get("transactions", []))
+        st.markdown(f"#### 📄 `{doc}` | {tx_count} transactions")
+        st.markdown(f"- YAML: `{fname}`")
+        st.markdown(f"- PDF: `{base}.pdf`")
+
+        if st.button(f"🗑 Delete `{base}`", key=fname):
+            os.remove(yaml_path)
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+            st.success(f"Deleted `{base}`")
+            st.experimental_rerun()
+    except Exception as e:
+        st.warning(f"Could not load {fname}: {e}")
