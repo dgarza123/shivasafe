@@ -1,3 +1,4 @@
+# --- dlnr.py ---
 import streamlit as st
 import os
 import yaml
@@ -14,7 +15,11 @@ for fname in yaml_files:
     try:
         with open(os.path.join(EVIDENCE_DIR, fname), "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            continue
         for tx in data.get("transactions", []):
+            if not isinstance(tx, dict):
+                continue
             parcels.append({
                 "Parcel ID": tx.get("parcel_id"),
                 "DLNR Match": tx.get("dlnr_match"),
