@@ -40,7 +40,7 @@ def load_entities():
 
 transactions = load_entities()
 if not transactions:
-    st.warning("No data available.")
+    st.warning("No data.")
     st.stop()
 
 markers = []
@@ -51,8 +51,12 @@ for tx in transactions:
     city = next((k for k in CITY_LOOKUP if k.lower() in addr.lower()), "Honolulu")
     lat1, lon1 = CITY_LOOKUP[city]
 
-    note = tx.get("offshore_note", "") + " " + tx.get("bank", "") + " " + tx.get("swift_code", "")
-    target = next(((lat, lon, name) for name, (lat, lon) in OFFSHORE_LOOKUP.items() if name.lower() in note.lower()), None)
+    valid = tx.get("parcel_valid", True)
+    color = [0, 100, 200, 160] if valid else [255, 0, 0, 180]
+    marker_label = "Registered Parcel" if valid else "Unregistered Parcel"
+
+    note = (tx.get("offshore_note", "") + " " + tx.get("bank", "") + " " + tx.get("swift_code", "")).lower()
+    target = next(((lat, lon, name) for name, (lat, lon) in OFFSHORE_LOOKUP.items() if name.lower() in note), None)
 
     markers.append({
         "lat": lat1,
@@ -60,17 +64,26 @@ for tx in transactions:
         "beneficiary": tx.get("beneficiary") or tx.get("grantee", ""),
         "amount": tx.get("amount", ""),
         "address": addr,
-        "file": tx.get("_source")
+        "parcel_status": marker_label,
+        "color": color
     })
 
     if target:
         lat2, lon2, label = target
+
+        # Determine direction
+        if any(p in note for p in ["assigned from", "received from", "funded by"]):
+            direction_color = [0, 100, 200]  # Incoming = Blue
+        else:
+            direction_color = [200, 30, 0]   # Outgoing = Red
+
         routes.append({
             "from_lat": lat1,
             "from_lon": lon1,
             "to_lat": lat2,
             "to_lon": lon2,
-            "label": f"{tx.get('beneficiary', '')} to {label}",
+            "color": direction_color,
+            "label": f"{tx.get('beneficiary', '')} transfer",
             "amount": tx.get("amount", "")
         })
 
@@ -83,7 +96,7 @@ layers = [
         data=df_markers,
         get_position='[lon, lat]',
         get_radius=3000,
-        get_fill_color='[0, 100, 200, 160]',
+        get_fill_color="color",
         pickable=True
     )
 ]
@@ -95,8 +108,8 @@ if not df_routes.empty:
             data=df_routes,
             get_source_position='[from_lon, from_lat]',
             get_target_position='[to_lon, to_lat]',
+            get_color="color",
             get_width=3,
-            get_color=[200, 30, 0],
             pickable=True
         )
     )
@@ -104,5 +117,11 @@ if not df_routes.empty:
 st.pydeck_chart(pdk.Deck(
     initial_view_state=pdk.ViewState(latitude=20.9, longitude=-157.9, zoom=6),
     layers=layers,
-    tooltip={"text": "{beneficiary}\n{amount}\n{address}"}
+    tooltip={"text": "{beneficiary}\n{amount}\n{parcel_status}"}
 ))
+
+st.markdown("**Legend**")
+st.markdown("- Blue circle = Registered Parcel")
+st.markdown("- Red circle = Unregistered Parcel (not in public TMK database)")
+st.markdown("- Red line = Outgoing transfer (Hawaii → offshore)")
+st.markdown("- Blue line = Incoming transfer (offshore → Hawaii)")
