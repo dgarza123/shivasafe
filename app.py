@@ -4,16 +4,23 @@ import hashlib
 import datetime
 import yaml
 
+# Load admin password from config.yaml
+CONFIG_PATH = "config.yaml"
+with open(CONFIG_PATH, "r") as f:
+    config = yaml.safe_load(f)
+ADMIN_PASSWORD = config.get("admin_password")
+if not ADMIN_PASSWORD:
+    st.error("Admin password missing in config.yaml")
+    st.stop()
+
 st.set_page_config(page_title="ShivaSafe Admin Upload", layout="wide")
 st.title("ShivaSafe | Admin Upload")
 
 TMP_DIR = "tmp"
-ADMIN_PASSWORD = "shiva2024"
 
-# Secure auth flow
+# Auth logic
 if "auth" not in st.session_state:
     st.session_state.auth = False
-
 if not st.session_state.auth:
     with st.container():
         st.markdown("#### 🔒 Admin Login")
