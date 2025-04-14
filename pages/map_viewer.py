@@ -9,7 +9,7 @@ st.title("Offshore Transaction Map")
 EVIDENCE_DIR = "evidence"
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-ORIGIN_COORDS = [21.3069, -157.8583]  # Honolulu
+ORIGIN_COORDS = [21.3069, -157.8583]
 
 def get_philippines_coords():
     return [13.41, 122.56]
@@ -33,4 +33,27 @@ def extract_lines(yaml_data):
         if "offshore_note" not in tx:
             continue
         label = f"{tx.get('grantee')} | {tx.get('amount')} | {tx.get('parcel_id')}"
-        if tx
+        if tx.get("registry_key"):
+            label += f" | Key: {tx['registry_key']}"
+        if not tx.get("parcel_valid", True):
+            label += " ❌"
+        lines.append({
+            "from_lat": ORIGIN_COORDS[0],
+            "from_lon": ORIGIN_COORDS[1],
+            "to_lat": 13.41,
+            "to_lon": 122.56,
+            "label": label,
+            "color": [255, 0, 0],
+        })
+    return lines
+
+all_lines = []
+for _, ydata in load_yaml_pairs():
+    all_lines.extend(extract_lines(ydata))
+
+if not all_lines:
+    st.info("No offshore transactions found.")
+    st.stop()
+
+layer = pdk.Layer(
+    "Arc
