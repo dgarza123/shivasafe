@@ -4,25 +4,30 @@ import hashlib
 import datetime
 import yaml
 
-st.set_page_config(page_title="ShivaSafe Admin", layout="wide")
-st.title("ShivaSafe | Upload Evidence")
+st.set_page_config(page_title="ShivaSafe Admin Upload", layout="wide")
+st.title("ShivaSafe | Admin Upload")
 
 TMP_DIR = "tmp"
-ADMIN_PASSWORD = "shiva2024"  # ← You can change this here
+ADMIN_PASSWORD = "shiva2024"
 
-# Authentication
+# Secure auth flow
 if "auth" not in st.session_state:
     st.session_state.auth = False
-if not st.session_state.auth:
-    password = st.text_input("Enter admin password:", type="password")
-    if password == ADMIN_PASSWORD:
-        st.session_state.auth = True
-        st.experimental_rerun()
-    else:
-        st.stop()
 
-# Upload interface
-with st.expander("📤 Upload Forensic Evidence"):
+if not st.session_state.auth:
+    with st.container():
+        st.markdown("#### 🔒 Admin Login")
+        password = st.text_input("Enter admin password:", type="password")
+        if password == ADMIN_PASSWORD:
+            st.session_state.auth = True
+            if not st.session_state.get("rerun_done"):
+                st.session_state.rerun_done = True
+                st.experimental_rerun()
+        else:
+            st.stop()
+
+# Upload form
+with st.expander("📤 Upload Forensic Evidence", expanded=True):
     with st.form("upload_form", clear_on_submit=True):
         pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
         yaml_file = st.file_uploader("Upload YAML", type=["yaml", "yml"])
