@@ -1,8 +1,10 @@
 import streamlit as st
 from collections import defaultdict
+import os
+import yaml
 
 st.set_page_config(page_title="Entity Intelligence", layout="wide")
-st.title("🧠 Entity Intelligence Dashboard")
+st.title("Entity Intelligence Dashboard")
 
 EVIDENCE_DIR = "evidence"
 yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
@@ -31,7 +33,7 @@ for fname in yaml_files:
     except Exception as e:
         st.warning(f"Failed to read {fname}: {e}")
 
-st.sidebar.header("🔎 Search Entity")
+st.sidebar.header("Search Entity")
 search_term = st.sidebar.text_input("Entity name contains")
 
 filtered = {
@@ -44,11 +46,11 @@ if not filtered:
     st.stop()
 
 for name, data in sorted(filtered.items()):
-    st.markdown(f"### 🔹 {name}")
-    st.markdown(f"- **Roles**: {', '.join(sorted(data['roles']))}")
-    st.markdown(f"- **Files**: {', '.join(sorted(data['files']))}")
+    st.markdown(f"### {name}")
+    st.markdown(f"- Roles: {', '.join(sorted(data['roles']))}")
+    st.markdown(f"- Files: {', '.join(sorted(data['files']))}")
     if data["parcels"]:
-        st.markdown(f"- **Parcels**: {', '.join(sorted(data['parcels']))}")
+        st.markdown(f"- Parcels: {', '.join(sorted(data['parcels']))}")
     if data["amounts"]:
-        st.markdown(f"- **Amounts**: {', '.join(sorted(data['amounts']))}")
+        st.markdown(f"- Amounts: {', '.join(sorted(data['amounts']))}")
     st.markdown("---")
