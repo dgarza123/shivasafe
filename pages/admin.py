@@ -1,14 +1,42 @@
 import streamlit as st
-import os
 import yaml
+import os
 from datetime import datetime
 
-st.set_page_config(page_title="Admin Panel", layout="wide")
-st.title("Evidence File Manager")
+st.set_page_config(page_title="Admin Tools", layout="wide")
+st.title("Admin Control Panel")
+
+# Load admin password
+CONFIG_PATH = "config.yaml"
+with open(CONFIG_PATH, "r") as f:
+    config = yaml.safe_load(f)
+ADMIN_PASSWORD = config.get("admin_password")
+
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
+
+if not st.session_state.admin_logged_in:
+    pw = st.text_input("Enter admin password:", type="password")
+    if pw == ADMIN_PASSWORD:
+        st.session_state.admin_logged_in = True
+        st.rerun()
+    else:
+        st.stop()
+
+st.success("Access granted.")
+
+# === Upload and YAML Fix Links ===
+st.subheader("Quick Access")
+st.markdown("- [Upload Evidence](upload)")
+st.markdown("- [Fix YAML Structure](fix_yaml)")
+st.markdown("- [Return to Viewer](timeline)")
+
+# === File Deletion Interface ===
+st.markdown("---")
+st.subheader("Delete Uploaded Evidence")
 
 EVIDENCE_DIR = "evidence"
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
-
 yaml_files = sorted([f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")])
 
 if not yaml_files:
