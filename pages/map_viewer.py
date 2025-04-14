@@ -19,14 +19,19 @@ def load_yaml_pairs():
             base = fname.replace("_entities.yaml", "")
             pdf = base + ".pdf"
             if os.path.exists(os.path.join(TMP_DIR, pdf)):
-                with open(os.path.join(TMP_DIR, fname), "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                    pairs.append((pdf, data))
+                try:
+                    with open(os.path.join(TMP_DIR, fname), "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                        if data:  # ✅ Skip if None
+                            pairs.append((pdf, data))
+                except Exception as e:
+                    st.warning(f"Error reading {fname}: {e}")
     return pairs
 
 def extract_lines(yaml_data):
     lines = []
-    for tx in yaml_data.get("transactions", []):
+    txs = yaml_data.get("transactions", [])
+    for tx in txs:
         if "offshore_note" not in tx:
             continue
         dest = get_philippines_coords()
@@ -36,49 +41,4 @@ def extract_lines(yaml_data):
             tx.get("parcel_id", ""),
         ]
         if not tx.get("parcel_valid", True):
-            label_parts.append("❌ Invalid Parcel")
-        if tx.get("registry_key"):
-            label_parts.append(f"Key: {tx['registry_key']}")
-        lines.append({
-            "from_lat": ORIGIN_COORDS[0],
-            "from_lon": ORIGIN_COORDS[1],
-            "to_lat": dest[0],
-            "to_lon": dest[1],
-            "label": " | ".join([str(p) for p in label_parts if p]),
-            "direction": "outbound",
-            "color": [255, 0, 0]  # Red for outbound
-        })
-    return lines
-
-all_lines = []
-for _, ydata in load_yaml_pairs():
-    all_lines.extend(extract_lines(ydata))
-
-if not all_lines:
-    st.warning("No offshore transaction lines found.")
-    st.stop()
-
-layer = pdk.Layer(
-    "ArcLayer",
-    data=all_lines,
-    get_source_position=["from_lon", "from_lat"],
-    get_target_position=["to_lon", "to_lat"],
-    get_width=1.5,
-    get_source_color=[0, 100, 255],
-    get_target_color="color",
-    pickable=True,
-    auto_highlight=True
-)
-
-view_state = pdk.ViewState(
-    latitude=ORIGIN_COORDS[0],
-    longitude=ORIGIN_COORDS[1],
-    zoom=3.6,
-    pitch=20
-)
-
-st.pydeck_chart(pdk.Deck(
-    layers=[layer],
-    initial_view_state=view_state,
-    tooltip={"text": "{label}"}
-))
+            label_parts.append("❌ Invalid_
