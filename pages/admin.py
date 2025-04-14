@@ -1,12 +1,12 @@
 import streamlit as st
-import yaml
 import os
+import yaml
 from datetime import datetime
 
 st.set_page_config(page_title="Admin Tools", layout="wide")
 st.title("Admin Control Panel")
 
-# Load admin password
+# Load password
 CONFIG_PATH = "config.yaml"
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
@@ -25,13 +25,30 @@ if not st.session_state.admin_logged_in:
 
 st.success("Access granted.")
 
-# === Upload and YAML Fix Links ===
+# === Links to Admin Tools ===
 st.subheader("Quick Access")
 st.markdown("- [Upload Evidence](upload)")
 st.markdown("- [Fix YAML Structure](fix_yaml)")
 st.markdown("- [Return to Viewer](timeline)")
 
-# === File Deletion Interface ===
+# === Embedded Uploader to Root ===
+st.markdown("---")
+st.subheader("Upload Any File to App Root")
+
+with st.form("upload_root_inline"):
+    uploaded = st.file_uploader("Select a file to upload to the root directory", type=None)
+    submit = st.form_submit_button("Upload")
+
+    if submit and uploaded:
+        try:
+            save_path = os.path.join(".", uploaded.name)
+            with open(save_path, "wb") as f:
+                f.write(uploaded.read())
+            st.success(f"Uploaded to: {uploaded.name}")
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+
+# === File Deletion Section ===
 st.markdown("---")
 st.subheader("Delete Uploaded Evidence")
 
