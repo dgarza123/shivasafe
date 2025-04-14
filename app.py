@@ -18,9 +18,10 @@ st.title("ShivaSafe | Admin Upload")
 
 TMP_DIR = "tmp"
 
-# Auth logic
+# Auth flow
 if "auth" not in st.session_state:
     st.session_state.auth = False
+
 if not st.session_state.auth:
     with st.container():
         st.markdown("#### 🔒 Admin Login")
@@ -41,16 +42,23 @@ with st.expander("📤 Upload Forensic Evidence", expanded=True):
         submitted = st.form_submit_button("Submit")
 
         if submitted and pdf_file and yaml_file:
-            pdf_bytes = pdf_file.read()
-            hash_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
-            date_stamp = datetime.datetime.now().strftime("%Y-%m-%d")
-            base = f"{date_stamp}_{hash_id}"
+            try:
+                # Hash the PDF file for ID
+                pdf_bytes = pdf_file.read()
+                hash_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
+                date_stamp = datetime.datetime.now().strftime("%Y-%m-%d")
+                base = f"{date_stamp}_{hash_id}"
 
-            os.makedirs(TMP_DIR, exist_ok=True)
-            with open(os.path.join(TMP_DIR, base + ".pdf"), "wb") as f:
-                f.write(pdf_bytes)
-            with open(os.path.join(TMP_DIR, base + "_entities.yaml"), "wb") as f:
-                f.write(yaml_file.read())
+                # Save both files
+                os.makedirs(TMP_DIR, exist_ok=True)
+                with open(os.path.join(TMP_DIR, base + ".pdf"), "wb") as f:
+                    f.write(pdf_bytes)
+                with open(os.path.join(TMP_DIR, base + "_entities.yaml"), "wb") as f:
+                    f.write(yaml_file.read())
 
-            st.success(f"Uploaded as `{base}`")
-            st.experimental_rerun()
+                st.success(f"Uploaded as `{base}`")
+                if not st.session_state.get("rerun_done"):
+                    st.session_state.rerun_done = True
+                    st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Upload failed: {e}")
