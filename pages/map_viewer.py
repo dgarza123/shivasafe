@@ -2,19 +2,15 @@ import streamlit as st
 import pydeck as pdk
 import os
 import yaml
-import re
-import hashlib
 
-st.set_page_config(page_title="Map Viewer", layout="wide")
+st.set_page_config(page_title="Transaction Map", layout="wide")
 st.title("Offshore Transaction Map")
 
 TMP_DIR = "tmp"
-ORIGIN_COORDS = [21.3069, -157.8583]  # Default: Honolulu, HI
+ORIGIN_COORDS = [21.3069, -157.8583]  # Honolulu
 
-def get_country_destination(note):
-    if "philippines" in note.lower():
-        return [13.41, 122.56]  # Central Philippines
-    return [14.6, 121.0]  # Default fallback (Manila)
+def get_philippines_coords():
+    return [13.41, 122.56]
 
 def load_yaml_pairs():
     pairs = []
@@ -33,17 +29,22 @@ def extract_lines(yaml_data):
     for tx in yaml_data.get("transactions", []):
         if "offshore_note" not in tx:
             continue
-        dest = get_country_destination(tx["offshore_note"])
-        label = tx.get("grantee", "Unknown")
-        parcel = tx.get("parcel_id", "—")
-        amt = tx.get("amount", "—")
-        reg = tx.get("registry_key", "")
+        dest = get_philippines_coords()
+        label_parts = [
+            tx.get("grantee", "—"),
+            tx.get("amount", ""),
+            tx.get("parcel_id", ""),
+        ]
+        if not tx.get("parcel_valid", True):
+            label_parts.append("❌ Invalid Parcel")
+        if tx.get("registry_key"):
+            label_parts.append(f"Key: {tx['registry_key']}")
         lines.append({
             "from_lat": ORIGIN_COORDS[0],
             "from_lon": ORIGIN_COORDS[1],
             "to_lat": dest[0],
             "to_lon": dest[1],
-            "label": f"{label} | {amt} | {parcel} | {reg}",
+            "label": " | ".join([str(p) for p in label_parts if p]),
             "direction": "outbound",
             "color": [255, 0, 0]  # Red for outbound
         })
@@ -62,14 +63,19 @@ layer = pdk.Layer(
     data=all_lines,
     get_source_position=["from_lon", "from_lat"],
     get_target_position=["to_lon", "to_lat"],
-    get_width=2,
+    get_width=1.5,
     get_source_color=[0, 100, 255],
     get_target_color="color",
     pickable=True,
     auto_highlight=True
 )
 
-view_state = pdk.ViewState(latitude=ORIGIN_COORDS[0], longitude=ORIGIN_COORDS[1], zoom=3.5, pitch=0)
+view_state = pdk.ViewState(
+    latitude=ORIGIN_COORDS[0],
+    longitude=ORIGIN_COORDS[1],
+    zoom=3.6,
+    pitch=20
+)
 
 st.pydeck_chart(pdk.Deck(
     layers=[layer],
