@@ -3,14 +3,17 @@ import os
 import yaml
 import shutil
 
-st.set_page_config(page_title="YAML Structure Fixer", layout="wide")
-st.title("Admin: YAML Structure Fixer")
+# Suppress from sidebar
+st.set_page_config(page_title="Hidden Admin Tool", layout="wide")
+st.markdown("<style>footer {visibility: hidden;} header {visibility: hidden;} div[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
 
-# Load admin password
+# Load admin password from config
 CONFIG_PATH = "config.yaml"
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
 ADMIN_PASSWORD = config.get("admin_password")
+
+st.title("YAML Structure Fixer (Admin Only)")
 
 if "auth_fix_yaml" not in st.session_state:
     st.session_state.auth_fix_yaml = False
@@ -23,7 +26,7 @@ if not st.session_state.auth_fix_yaml:
     else:
         st.stop()
 
-# Fix function
+# Only accessible to admin
 def fix_yaml_structure():
     EVIDENCE_DIR = "evidence"
     fixed = []
@@ -45,7 +48,6 @@ def fix_yaml_structure():
                 continue
 
             if isinstance(data, list) and all(isinstance(item, dict) for item in data):
-                # Backup original
                 backup_path = fpath.replace("_entities.yaml", "_invalid.yaml")
                 shutil.move(fpath, backup_path)
 
@@ -72,14 +74,14 @@ if st.button("Scan and Fix YAML Structure"):
     fixed, skipped, errors = fix_yaml_structure()
 
     if fixed:
-        st.success(f"Fixed: {len(fixed)} files")
+        st.success(f"Fixed {len(fixed)} files:")
         st.code("\n".join(fixed))
     else:
-        st.info("No files required fixing.")
+        st.info("No files needed fixing.")
 
     if skipped:
-        st.caption(f"Skipped: {len(skipped)} already valid")
+        st.caption(f"Skipped {len(skipped)} files already valid.")
 
     if errors:
-        st.error("Errors encountered:")
+        st.error("Errors:")
         st.code("\n".join(errors))
