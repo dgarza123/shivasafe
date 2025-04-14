@@ -1,62 +1,51 @@
 import streamlit as st
+import yaml
+import os
+from datetime import datetime
 import pandas as pd
-import plotly.express as px
 
-st.set_page_config(page_title="Transaction Timeline", layout="wide")
-st.title("📆 Transaction Timeline Viewer")
+st.set_page_config(layout="wide")
+st.title("📆 Transaction Timeline")
 
-if "yaml_data" not in st.session_state or not st.session_state.yaml_data:
-    st.warning("No YAML files loaded. Please upload files via the Home page.")
+# === Load all YAMLs
+def load_all_transactions():
+    all_tx = []
+    for f in os.listdir("/tmp"):
+        if f.endswith("_entities.yaml"):
+            with open(os.path.join("/tmp", f), "r", encoding="utf-8") as y:
+                try:
+                    data = yaml.safe_load(y)
+                    for t in data.get("transactions", []):
+                        t["_file"] = f
+                        all_tx.append(t)
+                except:
+                    continue
+    return all_tx
+
+transactions = load_all_transactions()
+if not transactions:
+    st.warning("No transaction YAMLs found in /tmp.")
     st.stop()
 
-# Collect and flatten all transactions
+# === Clean and sort by date
 records = []
-for file_data in st.session_state.yaml_data:
-    filename = file_data.get("_uploaded_filename", "unknown")
-    for tx in file_data.get("transactions", []):
-        tx = tx.get("transaction", tx)
-        records.append({
-            "Source File": filename,
-            "Date Closed": tx.get("date_closed"),
-            "From": tx.get("grantor"),
-            "To": tx.get("grantee") or tx.get("beneficiary"),
-            "Amount": tx.get("amount"),
-            "Parcel": tx.get("parcel_id"),
-            "Escrow #": tx.get("escrow_number"),
-            "Trust": tx.get("trust"),
-        })
-
-# Convert to DataFrame
-df = pd.DataFrame(records)
-df = df.dropna(subset=["Date Closed"])  # Timeline needs date field
-if df.empty:
-    st.info("No transactions with valid dates available.")
-    st.stop()
-
-# Parse amounts and dates
-def parse_amount(val):
+for tx in transactions:
     try:
-        return float(str(val).replace("$", "").replace(",", ""))
+        date = datetime.strptime(str(tx.get("date_closed", "")).strip(), "%Y-%m-%d")
     except:
-        return 0
+        continue
+    records.append({
+        "date": date,
+        "amount": tx.get("amount", ""),
+        "beneficiary": tx.get("beneficiary") or tx.get("grantee"),
+        "grantor": tx.get("grantor", ""),
+        "parcel": tx.get("parcel_id", ""),
+        "registry_key": tx.get("registry_key", ""),
+        "source_file": tx.get("_file", "")
+    })
 
-df["Amount"] = df["Amount"].apply(parse_amount)
-df["Date Closed"] = pd.to_datetime(df["Date Closed"], errors='coerce')
-df = df.dropna(subset=["Date Closed"])  # Drop rows with invalid date parsing
+df = pd.DataFrame(records).sort_values("date")
 
-# Sort by date
-df = df.sort_values("Date Closed")
-
-# Render timeline chart
-st.markdown("### 📊 Chronological Transfer Timeline")
-fig = px.timeline(
-    df,
-    x_start="Date Closed",
-    x_end="Date Closed",
-    y="Trust",
-    color="Amount",
-    hover_data=["From", "To", "Escrow #", "Amount", "Parcel", "Source File"],
-    title="Trust Transfers Over Time"
-)
-fig.update_yaxes(autorange="reversed")
-st.plotly_chart(fig, use_container_width=True)
+# === Display timeline
+st.markdown("### 📋 Chronological View")
+st.dataframe(df, use_container_width=True)
