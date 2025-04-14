@@ -1,3 +1,4 @@
+# --- summary.py ---
 import streamlit as st
 import os
 import yaml
@@ -20,7 +21,11 @@ for fname in sorted(yaml_files):
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        for tx in data.get("transactions", []):
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            continue
+        for tx in data["transactions"]:
+            if not isinstance(tx, dict):
+                continue
             summary = []
             amount = tx.get("amount", "")
             parcel = tx.get("parcel_id", "")
