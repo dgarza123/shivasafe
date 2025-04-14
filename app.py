@@ -4,48 +4,40 @@ import os
 import json
 import yaml
 
-from modules.decode_controller import run_full_decode
-from modules.entity_extraction import extract_entities
-from modules.registry_scanner import extract_registry_keys
-from modules.suppression_detector import flag_suppressed_blocks
-
 st.set_page_config(layout="wide")
-st.title("🧾 ShivaSafe Forensic PDF Decoder")
+st.title("🧾 ShivaSafe — Upload & Review Forensic Results")
 
-# === Upload
-uploaded_files = st.file_uploader("Upload one or more PDF containers", type=["pdf"], accept_multiple_files=True)
+# === Upload Interface
+uploaded_files = st.file_uploader("Upload forensic PDF containers", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
-    st.markdown("### 🔍 Uploaded Files")
+    st.markdown("### 📄 Uploaded Files")
+
     for file in uploaded_files:
         file_bytes = file.read()
         sha256 = hashlib.sha256(file_bytes).hexdigest()
         filename = file.name
 
         # Save to /tmp
-        tmp_path = f"/tmp/{sha256}.pdf"
-        with open(tmp_path, "wb") as f:
+        pdf_path = f"/tmp/{sha256}.pdf"
+        with open(pdf_path, "wb") as f:
             f.write(file_bytes)
 
-        # Process
-        st.info(f"📄 Processing `{filename}` …")
-        decoded_blocks = run_full_decode(file_bytes)
+        # Display file summary
+        st.markdown(f"- `{filename}` | SHA256: `{sha256[:12]}...` [📄 View PDF]({pdf_path})")
 
-        # Registry keys + entity extraction
-        entities = extract_entities(decoded_blocks)
-        registry_keys = extract_registry_keys(decoded_blocks)
-        flagged_blocks = flag_suppressed_blocks(decoded_blocks)
-
-        # Save JSON/YAML output
-        json_path = f"/tmp/{sha256}_blocks.json"
+        # Auto-link YAML / JSON (if you've uploaded them separately)
         yaml_path = f"/tmp/{sha256}_entities.yaml"
+        json_path = f"/tmp/{sha256}_blocks.json"
 
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(decoded_blocks, f, indent=2)
+        if os.path.exists(yaml_path):
+            st.markdown(f"⬇️ [Download YAML]({yaml_path})")
 
-        with open(yaml_path, "w", encoding="utf-8") as f:
-            yaml.dump({"transactions": entities}, f, sort_keys=False)
+        if os.path.exists(json_path):
+            st.markdown(f"⬇️ [Download JSON]({json_path})")
 
-        # Show success message and rerun
-        st.success(f"✅ `{filename}` processed and saved.")
-        st.experimental_rerun()
+        st.markdown("---")
+
+    # 🔄 Refresh page after upload
+    st.success("✅ File(s) saved.")
+    st.experimental_rerun()
