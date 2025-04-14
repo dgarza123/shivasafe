@@ -4,7 +4,7 @@ import hashlib
 import datetime
 import yaml
 
-# Load admin password from config.yaml
+# Load password from config.yaml
 CONFIG_PATH = "config.yaml"
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
@@ -13,15 +13,14 @@ if not ADMIN_PASSWORD:
     st.error("Admin password missing in config.yaml")
     st.stop()
 
-st.set_page_config(page_title="ShivaSafe Admin Upload", layout="wide")
-st.title("ShivaSafe | Admin Upload")
+st.set_page_config(page_title="ShivaSafe Upload", layout="wide")
+st.title("ShivaSafe | Upload Evidence")
 
 TMP_DIR = "tmp"
 
-# Auth flow
+# Authentication
 if "auth" not in st.session_state:
     st.session_state.auth = False
-
 if not st.session_state.auth:
     with st.container():
         st.markdown("#### 🔒 Admin Login")
@@ -35,7 +34,7 @@ if not st.session_state.auth:
             st.stop()
 
 # Upload form
-with st.expander("📤 Upload Forensic Evidence", expanded=True):
+with st.expander("📤 Upload New Evidence", expanded=True):
     with st.form("upload_form", clear_on_submit=True):
         pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
         yaml_file = st.file_uploader("Upload YAML", type=["yaml", "yml"])
@@ -43,13 +42,11 @@ with st.expander("📤 Upload Forensic Evidence", expanded=True):
 
         if submitted and pdf_file and yaml_file:
             try:
-                # Hash the PDF file for ID
                 pdf_bytes = pdf_file.read()
                 hash_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
                 date_stamp = datetime.datetime.now().strftime("%Y-%m-%d")
                 base = f"{date_stamp}_{hash_id}"
 
-                # Save both files
                 os.makedirs(TMP_DIR, exist_ok=True)
                 with open(os.path.join(TMP_DIR, base + ".pdf"), "wb") as f:
                     f.write(pdf_bytes)
