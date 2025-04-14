@@ -1,110 +1,101 @@
 import streamlit as st
-import hashlib
 import os
+import hashlib
+import datetime
+import shutil
 import yaml
-from datetime import datetime
-import pandas as pd
 
-st.set_page_config(layout="wide")
-st.title("ShivaSafe Forensic Transaction Dashboard")
+st.set_page_config(page_title="ShivaSafe Evidence Viewer", layout="wide")
+st.title("ShivaSafe | Forensic Document Dashboard")
 
-# Admin Access
-admin_pass = st.sidebar.text_input("Admin Key", type="password")
-is_admin = admin_pass == "shiva2024"  # Change this as needed
+TMP_DIR = "tmp"
 
-# Admin: Upload Section
-if is_admin:
-    st.sidebar.markdown("### Upload Forensic Files")
-    uploaded_pdf = st.sidebar.file_uploader("Upload PDF", type=["pdf"], key="pdf")
-    uploaded_yaml = st.sidebar.file_uploader("Upload YAML", type=["yaml", "yml"], key="yaml")
+# --- Admin password protection ---
+ADMIN_PASSWORD = "shiva2024"
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
-    if uploaded_pdf and uploaded_yaml:
-        file_bytes = uploaded_pdf.read()
-        sha = hashlib.sha256(file_bytes).hexdigest()
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        base_name = f"{timestamp}_{sha[:12]}"
-        pdf_path = f"/tmp/{base_name}.pdf"
-        yaml_path = f"/tmp/{base_name}_entities.yaml"
-
-        with open(pdf_path, "wb") as f:
-            f.write(file_bytes)
-        with open(yaml_path, "wb") as f:
-            f.write(uploaded_yaml.getbuffer())
-
-        st.sidebar.success(f"Uploaded as {base_name}")
+if not st.session_state.auth:
+    password = st.text_input("Admin Access (Password Required):", type="password")
+    if password == ADMIN_PASSWORD:
+        st.session_state.auth = True
+        st.experimental_rerun()
+    else:
         st.stop()
 
-# Admin: Delete Section
-if is_admin:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Delete Uploaded Files")
-    tmp_files = sorted([f for f in os.listdir("/tmp") if f.endswith(".pdf") or f.endswith(".yaml")])
-    file_to_delete = st.sidebar.selectbox("Select file", tmp_files)
+# --- Upload Form (Admin Only) ---
+with st.expander("Upload Forensic Evidence", expanded=False):
+    with st.form("upload_form", clear_on_submit=True):
+        pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key="pdf")
+        yaml_file = st.file_uploader("Upload YAML", type=["yaml", "yml"], key="yaml")
+        submit = st.form_submit_button("Submit")
 
-    if st.sidebar.button("Delete Selected File"):
-        try:
-            os.remove(os.path.join("/tmp", file_to_delete))
-            st.sidebar.success(f"Deleted: {file_to_delete}")
-            st.stop()
-        except Exception as e:
-            st.sidebar.error(f"Failed to delete: {e}")
+        if submit and pdf_file and yaml_file:
+            with st.spinner("Processing..."):
+                file_bytes = pdf_file.read()
+                file_hash = hashlib.sha256(file_bytes).hexdigest()
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
+                base_name = f"{timestamp}_{file_hash[:12]}"
 
-# Load YAML files
-def load_transactions():
-    records = []
-    for f in os.listdir("/tmp"):
-        if f.endswith("_entities.yaml"):
-            with open(os.path.join("/tmp", f), "r", encoding="utf-8") as y:
-                try:
-                    data = yaml.safe_load(y)
-                    for t in data.get("transactions", []):
-                        t["_file"] = f
-                        records.append(t)
-                except:
-                    continue
-    return records
+                # Save files
+                os.makedirs(TMP_DIR, exist_ok=True)
+                with open(os.path.join(TMP_DIR, base_name + ".pdf"), "wb") as f:
+                    f.write(file_bytes)
+                with open(os.path.join(TMP_DIR, base_name + "_entities.yaml"), "wb") as f:
+                    f.write(yaml_file.read())
 
-transactions = load_transactions()
+                st.success(f"Saved as `{base_name}`")
+                st.experimental_rerun()
 
-if not transactions:
-    st.warning("No YAML files in /tmp.")
-    st.stop()
+# --- Load Uploaded Evidence ---
+pdfs = [f for f in os.listdir(TMP_DIR) if f.endswith(".pdf")]
+yamls = [f for f in os.listdir(TMP_DIR) if f.endswith("_entities.yaml")]
+yamls.sort(reverse=True)
 
-# Normalize to DataFrame
-def parse_date(d):
+# --- Display Files and Results ---
+for yaml_file in yamls:
     try:
-        return datetime.strptime(str(d).strip(), "%Y-%m-%d")
-    except:
-        return None
+        yaml_path = os.path.join(TMP_DIR, yaml_file)
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        st.error(f"Failed to load {yaml_file}: {e}")
+        continue
 
-df = pd.DataFrame([
-    {
-        "Beneficiary": t.get("beneficiary") or t.get("grantee"),
-        "Grantor": t.get("grantor"),
-        "Amount": t.get("amount"),
-        "Parcel": t.get("parcel_id"),
-        "Registry Key": t.get("registry_key"),
-        "Date": parse_date(t.get("date_closed")),
-        "Source File": t.get("_file")
-    }
-    for t in transactions if t.get("amount")
-])
+    pdf_name = yaml_file.replace("_entities.yaml", ".pdf")
+    pdf_path = os.path.join(TMP_DIR, pdf_name)
+    if not os.path.exists(pdf_path):
+        continue
 
-st.markdown("### Latest Transactions")
-sort_by = st.selectbox("Sort by", ["Date", "Amount", "Beneficiary"])
-df = df.sort_values(sort_by, ascending=(sort_by != "Amount"))
-st.dataframe(df, use_container_width=True)
+    with st.container():
+        st.subheader(data.get("document", pdf_name))
+        st.markdown(f"**SHA256**: `{data.get('sha256', '')[:16]}...`")
+        st.markdown(f"**Creation Date**: `{data.get('creation_date', '—')}`")
 
-selected = st.selectbox("Select a YAML file", df["Source File"].unique())
-with open(os.path.join("/tmp", selected), "r", encoding="utf-8") as f:
-    st.markdown(f"### Details from {selected}")
-    case = yaml.safe_load(f)
-    for i, tx in enumerate(case.get("transactions", []), 1):
-        st.markdown(f"#### Transaction {i}")
-        st.json(tx)
+        # Risk overview
+        if "risk_score" in data:
+            st.markdown("### Risk Score")
+            st.write(data["risk_score"])
 
-st.markdown("---")
-st.markdown("Use the sidebar to view:")
-st.markdown("- Map Viewer")
-st.markdown("- Timeline")
-st.markdown("- Transaction Case Viewer")
+        # Entity overview
+        if "entities" in data:
+            st.markdown("### Key Entities")
+            for e in data["entities"]:
+                name = e.get("name") or e.get("email") or e.get("account_number", "")
+                role = e.get("role", "")
+                note = e.get("note", "")
+                st.markdown(f"- **{name}** — _{role}_  {note}")
+
+        # Transactions table
+        if "transactions" in data:
+            st.markdown("### Transactions")
+            for tx in data["transactions"]:
+                grantor = tx.get("grantor", "—")
+                grantee = tx.get("grantee", "—")
+                amount = tx.get("amount", "—")
+                tmk = tx.get("parcel_id", "—")
+                valid = "✅" if tx.get("parcel_valid") else "❌"
+                st.markdown(f"- `{grantor}` → `{grantee}` | `{amount}` | {tmk} | Parcel Valid: {valid}")
+
+        with st.expander("View YAML", expanded=False):
+            st.code(yaml.dump(data, allow_unicode=True), language="yaml")
