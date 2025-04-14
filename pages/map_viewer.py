@@ -1,21 +1,32 @@
-# --- map_viewer.py ---
+# --- map_viewer.py (straight lines, parcel-centric) ---
 import streamlit as st
 import pydeck as pdk
 import os
 import yaml
 
 st.set_page_config(page_title="Transaction Map", layout="wide")
-st.title("Offshore Transaction Map")
+st.title("Transaction Flow Map")
 
 EVIDENCE_DIR = "evidence"
 
-ORIGIN_LAT = 21.3069   # Honolulu
-ORIGIN_LON = -157.8583
-DEST_LAT = 13.41       # Philippines
-DEST_LON = 122.56
+# Default: all parcels plotted at Honolulu
+HAWAII_LAT = 21.3069
+HAWAII_LON = -157.8583
 
-arcs = []
-markers = []
+def get_destination_coords(offshore_note):
+    offshore_note = offshore_note.lower()
+    if "philippines" in offshore_note:
+        return (13.41, 122.56)
+    if "dubai" in offshore_note:
+        return (25.276987, 55.296249)
+    if "japan" in offshore_note:
+        return (35.6895, 139.6917)
+    if "singapore" in offshore_note:
+        return (1.3521, 103.8198)
+    return (15.0, 120.0)  # generic fallback
+
+lines = []
+points = []
 
 yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
 
@@ -28,71 +39,67 @@ for fname in yaml_files:
         for tx in data["transactions"]:
             if not isinstance(tx, dict):
                 continue
-            if "offshore_note" not in tx:
+            offshore_note = tx.get("offshore_note", "")
+            if not offshore_note:
                 continue
+
+            dest_lat, dest_lon = get_destination_coords(offshore_note)
 
             label = f"{tx.get('grantee', '')} | {tx.get('amount', '')} | {tx.get('parcel_id', '')}"
             if tx.get("registry_key"):
                 label += f" | Key: {tx['registry_key']}"
-            if not tx.get("parcel_valid", True):
-                label += " (Invalid Parcel)"
 
-            arcs.append({
-                "from_lat": ORIGIN_LAT,
-                "from_lon": ORIGIN_LON,
-                "to_lat": DEST_LAT,
-                "to_lon": DEST_LON,
+            lines.append({
+                "source_lon": HAWAII_LON,
+                "source_lat": HAWAII_LAT,
+                "target_lon": dest_lon,
+                "target_lat": dest_lat,
                 "label": label,
                 "filename": fname,
-                "color": [255, 0, 0],
             })
 
-            markers.append({
-                "lat": ORIGIN_LAT,
-                "lon": ORIGIN_LON,
+            points.append({
+                "lon": HAWAII_LON,
+                "lat": HAWAII_LAT,
                 "label": label,
                 "filename": fname,
-                "color": [0, 255, 0],
             })
 
     except Exception as e:
         st.warning(f"Could not read {fname}: {e}")
 
-if not arcs:
+if not lines:
     st.info("No offshore transactions found.")
     st.stop()
 
-arc_layer = pdk.Layer(
-    "ArcLayer",
-    data=arcs,
-    get_source_position=["from_lon", "from_lat"],
-    get_target_position=["to_lon", "to_lat"],
-    get_source_color="color",
-    get_target_color="color",
-    get_width=4,
-    pickable=True,
-    auto_highlight=True,
+line_layer = pdk.Layer(
+    "LineLayer",
+    data=lines,
+    get_source_position="[source_lon, source_lat]",
+    get_target_position="[target_lon, target_lat]",
+    get_width=3,
+    get_color=[200, 0, 0],
+    pickable=True
 )
 
 marker_layer = pdk.Layer(
     "ScatterplotLayer",
-    data=markers,
-    get_position=["lon", "lat"],
-    get_color="color",
+    data=points,
+    get_position="[lon, lat]",
+    get_color=[0, 180, 0],
     get_radius=30000,
-    pickable=True,
+    pickable=True
 )
 
 view_state = pdk.ViewState(
-    latitude=ORIGIN_LAT,
-    longitude=ORIGIN_LON,
+    latitude=HAWAII_LAT,
+    longitude=HAWAII_LON,
     zoom=5,
-    bearing=0,
-    pitch=30,
+    pitch=30
 )
 
 st.pydeck_chart(pdk.Deck(
-    layers=[arc_layer, marker_layer],
+    layers=[marker_layer, line_layer],
     initial_view_state=view_state,
     tooltip={"text": "{filename}\n{label}"}
 ))
