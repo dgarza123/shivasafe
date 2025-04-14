@@ -9,8 +9,8 @@ st.title("Offshore Transaction Map")
 EVIDENCE_DIR = "evidence"
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-ORIGIN_COORDS = [21.3069, -157.8583]  # Honolulu, HI
-DEST_COORDS = [13.41, 122.56]  # Example: Philippines
+ORIGIN_COORDS = [21.3069, -157.8583]
+DEST_COORDS = [13.41, 122.56]
 
 def load_yaml_pairs():
     pairs = []
@@ -19,8 +19,10 @@ def load_yaml_pairs():
             try:
                 with open(os.path.join(EVIDENCE_DIR, fname), "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f)
-                    if isinstance(data, dict) and "transactions" in data:
+                    if isinstance(data, dict) and isinstance(data.get("transactions"), list):
                         pairs.append((fname, data))
+                    else:
+                        st.warning(f"Skipping malformed file: {fname}")
             except Exception as e:
                 st.warning(f"Could not read {fname}: {e}")
     return pairs
@@ -28,6 +30,8 @@ def load_yaml_pairs():
 def extract_lines(yaml_data, filename):
     lines = []
     for tx in yaml_data.get("transactions", []):
+        if not isinstance(tx, dict):
+            continue
         if "offshore_note" not in tx:
             continue
         label = f"{tx.get('grantee', '')} | {tx.get('amount', '')} | {tx.get('parcel_id', '')}"
