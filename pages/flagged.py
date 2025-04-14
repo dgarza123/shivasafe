@@ -1,3 +1,4 @@
+# --- flagged.py ---
 import streamlit as st
 import yaml
 import os
@@ -26,7 +27,11 @@ for fname in yaml_files:
     try:
         with open(os.path.join(EVIDENCE_DIR, fname), "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            continue
         for tx in data.get("transactions", []):
+            if not isinstance(tx, dict):
+                continue
             for field in ["grantor", "grantee", "beneficiary", "advisor", "trust"]:
                 val = str(tx.get(field, "")).lower()
                 for name in FLAGGED_NAMES:
