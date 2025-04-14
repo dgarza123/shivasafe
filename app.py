@@ -1,43 +1,75 @@
 import streamlit as st
-import hashlib
 import os
-import json
 import yaml
+import pandas as pd
+from datetime import datetime
 
 st.set_page_config(layout="wide")
-st.title("🧾 ShivaSafe — Upload & Review Forensic Results")
+st.title("🧾 ShivaSafe Forensic Transaction Dashboard")
 
-# === Upload Interface
-uploaded_files = st.file_uploader("Upload forensic PDF containers", type=["pdf"], accept_multiple_files=True)
+# === Load all YAMLs from /tmp/
+def load_all_transactions():
+    records = []
+    for f in os.listdir("/tmp"):
+        if f.endswith("_entities.yaml"):
+            try:
+                with open(os.path.join("/tmp", f), "r", encoding="utf-8") as y:
+                    data = yaml.safe_load(y)
+                    for tx in data.get("transactions", []):
+                        tx["_file"] = f
+                        records.append(tx)
+            except:
+                continue
+    return records
 
-if uploaded_files:
-    st.markdown("### 📄 Uploaded Files")
+transactions = load_all_transactions()
 
-    for file in uploaded_files:
-        file_bytes = file.read()
-        sha256 = hashlib.sha256(file_bytes).hexdigest()
-        filename = file.name
+if not transactions:
+    st.warning("No transactions found in `/tmp/`.")
+    st.stop()
 
-        # Save to /tmp
-        pdf_path = f"/tmp/{sha256}.pdf"
-        with open(pdf_path, "wb") as f:
-            f.write(file_bytes)
+# === Flatten into DataFrame
+def safe_date(d):
+    try:
+        return datetime.strptime(str(d).strip(), "%Y-%m-%d")
+    except:
+        return None
 
-        # Display file summary
-        st.markdown(f"- `{filename}` | SHA256: `{sha256[:12]}...` [📄 View PDF]({pdf_path})")
+df = pd.DataFrame([
+    {
+        "Beneficiary": t.get("beneficiary") or t.get("grantee"),
+        "Grantor": t.get("grantor"),
+        "Amount": t.get("amount"),
+        "Parcel": t.get("parcel_id"),
+        "Registry Key": t.get("registry_key", ""),
+        "Date": safe_date(t.get("date_closed")),
+        "Source": t.get("_file")
+    }
+    for t in transactions if t.get("amount")
+])
 
-        # Auto-link YAML / JSON (if you've uploaded them separately)
-        yaml_path = f"/tmp/{sha256}_entities.yaml"
-        json_path = f"/tmp/{sha256}_blocks.json"
+# === Sort + Filter Controls
+st.markdown("### 📋 Recent Transactions")
+sort_by = st.selectbox("Sort by", ["Date", "Amount", "Beneficiary"])
+df = df.sort_values(sort_by, ascending=(sort_by != "Amount"))
 
-        if os.path.exists(yaml_path):
-            st.markdown(f"⬇️ [Download YAML]({yaml_path})")
+# === Display Table
+st.dataframe(df, use_container_width=True)
 
-        if os.path.exists(json_path):
-            st.markdown(f"⬇️ [Download JSON]({json_path})")
+# === Detail Viewer
+selected = st.selectbox("Select a record to view details", df["Source"].unique())
 
-        st.markdown("---")
+with open(os.path.join("/tmp", selected), "r", encoding="utf-8") as f:
+    case_data = yaml.safe_load(f)
 
-    # 🔄 Refresh page after upload
-    st.success("✅ File(s) saved.")
-    st.experimental_rerun()
+st.markdown(f"### 📁 Transaction Details from `{selected}`")
+for i, tx in enumerate(case_data.get("transactions", []), 1):
+    st.markdown(f"#### Transaction {i}")
+    st.json(tx)
+
+# === Navigation Help
+st.markdown("---")
+st.markdown("🔍 Use the sidebar to view:")
+st.markdown("- 🌍 [Map Viewer](Map Viewer)")
+st.markdown("- 📆 [Timeline](Timeline)")
+st.markdown("- 📂 [Transaction Viewer](Transaction Case Viewer)")
