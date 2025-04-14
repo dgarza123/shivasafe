@@ -4,7 +4,7 @@ import os
 import yaml
 
 st.set_page_config(page_title="Transaction Explorer", layout="wide")
-st.title("🧾 Transaction Explorer")
+st.title("Transaction Explorer")
 
 EVIDENCE_DIR = "evidence"
 yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
@@ -25,7 +25,7 @@ for fname in yaml_files:
                 "Parcel": tx.get("parcel_id"),
                 "DLNR Match": tx.get("dlnr_match"),
                 "Date Closed": tx.get("date_closed"),
-                "Overseas Transfer": tx.get("offshore_note") or tx.get("overseas_transfer"),
+                "Offshore Transfer": tx.get("offshore_note") or tx.get("overseas_transfer"),
             })
     except Exception as e:
         st.warning(f"Could not load {fname}: {e}")
@@ -36,7 +36,7 @@ if not records:
 
 df = pd.DataFrame(records)
 
-st.sidebar.header("🔍 Filter Transactions")
+st.sidebar.header("Filter Transactions")
 search_term = st.sidebar.text_input("Search name or parcel")
 min_amount = st.sidebar.number_input("Minimum amount ($)", min_value=0, value=200000)
 hide_confirmed = st.sidebar.checkbox("Hide DLNR-confirmed", value=False)
@@ -54,5 +54,5 @@ filtered_df = filtered_df[filtered_df["Amount"].apply(parse_amount) >= min_amoun
 if hide_confirmed:
     filtered_df = filtered_df[filtered_df["DLNR Match"] != True]
 
-st.markdown(f"### Showing {len(filtered_df)} results")
+st.markdown(f"Showing {len(filtered_df)} results")
 st.dataframe(filtered_df, use_container_width=True)
