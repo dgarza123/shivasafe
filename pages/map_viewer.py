@@ -7,7 +7,7 @@ st.set_page_config(page_title="Transaction Map", layout="wide")
 st.title("Offshore Transaction Map")
 
 EVIDENCE_DIR = "evidence"
-ORIGIN_COORDS = [21.3069, -157.8583]  # Honolulu, HI
+ORIGIN_COORDS = [21.3069, -157.8583]
 
 def get_philippines_coords():
     return [13.41, 122.56]
@@ -15,18 +15,15 @@ def get_philippines_coords():
 def load_yaml_pairs():
     pairs = []
     for fname in os.listdir(EVIDENCE_DIR):
-        if fname.endswith(".yaml") and "_entities" in fname:
-            pdf_name = fname.replace("_entities.yaml", ".pdf")
-            yaml_path = os.path.join(EVIDENCE_DIR, fname)
-            pdf_path = os.path.join(EVIDENCE_DIR, pdf_name)
-            if os.path.exists(pdf_path):
-                try:
-                    with open(yaml_path, "r", encoding="utf-8") as f:
-                        data = yaml.safe_load(f)
-                        if data:
-                            pairs.append((pdf_name, data))
-                except Exception as e:
-                    st.warning(f"Failed to load {fname}: {e}")
+        if fname.endswith("_entities.yaml"):
+            path = os.path.join(EVIDENCE_DIR, fname)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if data and os.path.exists(os.path.join(EVIDENCE_DIR, data.get("document", ""))):
+                    pairs.append(data)
+            except:
+                continue
     return pairs
 
 def extract_lines(yaml_data):
@@ -50,20 +47,16 @@ def extract_lines(yaml_data):
             "to_lat": dest[0],
             "to_lon": dest[1],
             "label": " | ".join(str(p) for p in label_parts if p),
-            "direction": "outbound",
             "color": [255, 0, 0],
         })
     return lines
 
 all_lines = []
-for _, ydata in load_yaml_pairs():
-    try:
-        all_lines.extend(extract_lines(ydata))
-    except Exception as e:
-        st.warning(f"Failed to parse transaction: {e}")
+for ydata in load_yaml_pairs():
+    all_lines.extend(extract_lines(ydata))
 
 if not all_lines:
-    st.info("No offshore transactions found.")
+    st.warning("No offshore transactions found.")
     st.stop()
 
 layer = pdk.Layer(
