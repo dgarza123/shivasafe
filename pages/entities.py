@@ -1,3 +1,4 @@
+# --- entities.py ---
 import streamlit as st
 from collections import defaultdict
 import os
@@ -9,10 +10,6 @@ st.title("Entity Intelligence Dashboard")
 EVIDENCE_DIR = "evidence"
 yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
 
-if not yaml_files:
-    st.warning("No YAML files found.")
-    st.stop()
-
 entity_roles = defaultdict(lambda: defaultdict(set))
 
 for fname in yaml_files:
@@ -20,7 +17,11 @@ for fname in yaml_files:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        for tx in data.get("transactions", []):
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            continue
+        for tx in data["transactions"]:
+            if not isinstance(tx, dict):
+                continue
             for role in ["grantor", "grantee", "beneficiary", "advisor"]:
                 name = tx.get(role)
                 if name:
