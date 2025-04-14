@@ -5,71 +5,120 @@ import yaml
 import os
 
 st.set_page_config(layout="wide")
-st.title("🌍 Global Transaction Map")
+st.title("Global Transaction Map with Routing Flows")
 
-# === Load entity YAMLs from /tmp
+# Hardcoded lookup for approximate parcel and offshore locations
+CITY_LOOKUP = {
+    "Kailua-Kona": (19.639994, -155.996926),
+    "Waianae": (21.4379, -158.1859),
+    "Honolulu": (21.3069, -157.8583),
+    "Maui": (20.7984, -156.3319)
+}
+
+OFFSHORE_LOOKUP = {
+    "Philippines": (13.41, 122.56),
+    "BDO": (14.583, 121.000),  # Manila
+    "UnionBank": (14.5547, 121.0244),  # Metro Manila
+    "Switzerland": (46.8182, 8.2275),
+    "Singapore": (1.3521, 103.8198),
+    "Cayman": (19.3133, -81.2546)
+}
+
+# Load all transactions from /tmp
 def load_yaml_entities():
     entries = []
     for f in os.listdir("/tmp"):
         if f.endswith("_entities.yaml"):
-            with open(os.path.join("/tmp", f), "r", encoding="utf-8") as infile:
-                try:
+            try:
+                with open(os.path.join("/tmp", f), "r", encoding="utf-8") as infile:
                     data = yaml.safe_load(infile)
-                    for t in data.get("transactions", []):
-                        t["_source"] = f
-                        entries.append(t)
-                except:
-                    continue
+                    for tx in data.get("transactions", []):
+                        tx["_source"] = f
+                        entries.append(tx)
+            except:
+                continue
     return entries
 
-entities = load_yaml_entities()
-if not entities:
-    st.warning("No entity YAML files found in /tmp.")
+transactions = load_yaml_entities()
+if not transactions:
+    st.warning("No transactions found.")
     st.stop()
 
-# === Manual geolocation (fallback if no lat/lon exists)
-LOCATION_LOOKUP = {
-    "Kailua-Kona": (19.639994, -155.996926),
-    "Waianae": (21.4379, -158.1859),
-    "Honolulu": (21.3069, -157.8583),
-}
+# Build data for map
+markers = []
+routes = []
 
-def guess_location(row):
-    addr = row.get("parcel_address", "")
-    for city, coords in LOCATION_LOOKUP.items():
-        if city.lower() in addr.lower():
-            return coords
-    return (21.3, -157.8)  # fallback (Hawaii default)
+for tx in transactions:
+    addr = tx.get("parcel_address", "")
+    city = None
+    for k in CITY_LOOKUP:
+        if k.lower() in addr.lower():
+            city = k
+            break
+    if not city:
+        city = "Honolulu"  # Default fallback
 
-# === Build map data
-points = []
-for t in entities:
-    lat, lon = t.get("lat"), t.get("lon")
-    if not lat or not lon:
-        lat, lon = guess_location(t)
-    points.append({
-        "lat": lat,
-        "lon": lon,
-        "amount": t.get("amount", ""),
-        "name": t.get("beneficiary") or t.get("grantee") or "",
-        "address": t.get("parcel_address", ""),
-        "file": t.get("_source", "")
+    source_lat, source_lon = CITY_LOOKUP[city]
+    offshore_note = tx.get("offshore_note", "") + " " + tx.get("bank", "") + " " + tx.get("swift_code", "")
+    offshore_target = None
+
+    for name, (lat, lon) in OFFSHORE_LOOKUP.items():
+        if name.lower() in offshore_note.lower():
+            offshore_target = (lat, lon, name)
+            break
+
+    markers.append({
+        "lat": source_lat,
+        "lon": source_lon,
+        "beneficiary": tx.get("beneficiary") or tx.get("grantee", ""),
+        "amount": tx.get("amount", ""),
+        "address": addr,
+        "file": tx.get("_source")
     })
 
-df = pd.DataFrame(points)
+    if offshore_target:
+        target_lat, target_lon, country = offshore_target
+        routes.append({
+            "from_lat": source_lat,
+            "from_lon": source_lon,
+            "to_lat": target_lat,
+            "to_lon": target_lon,
+            "label": f"{tx.get('beneficiary', '')} → {country}",
+            "amount": tx.get("amount", "")
+        })
 
-# === Render Map
-st.pydeck_chart(pdk.Deck(
-    initial_view_state=pdk.ViewState(latitude=21.3, longitude=-157.8, zoom=7),
-    layers=[
+# Create DataFrames
+marker_df = pd.DataFrame(markers)
+route_df = pd.DataFrame(routes)
+
+# Define map layers
+layers = [
+    pdk.Layer(
+        "ScatterplotLayer",
+        data=marker_df,
+        get_position='[lon, lat]',
+        get_radius=3500,
+        get_fill_color='[0, 100, 200, 160]',
+        pickable=True,
+    )
+]
+
+if not route_df.empty:
+    layers.append(
         pdk.Layer(
-            "ScatterplotLayer",
-            data=df,
-            get_position='[lon, lat]',
-            get_radius=3000,
-            get_fill_color='[200, 30, 0, 160]',
+            "LineLayer",
+            data=route_df,
+            get_source_position='[from_lon, from_lat]',
+            get_target_position='[to_lon, to_lat]',
+            get_width=3,
+            get_color=[200, 30, 0],
             pickable=True
         )
-    ],
-    tooltip={"text": "{name}\n{amount}\n{address}\n{file}"}
+    )
+
+# Render map
+st.pydeck_chart(pdk.Deck(
+    initial_view_state=pdk.ViewState(latitude=21.3, longitude=-157.8, zoom=6),
+    layers=layers,
+    tooltip={"text": "{beneficiary}\n{amount}\n{address}"}
 ))
