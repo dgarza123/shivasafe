@@ -1,63 +1,49 @@
 import streamlit as st
 import os
+import hashlib
+import datetime
 import yaml
 
-st.set_page_config(page_title="Evidence Admin", layout="wide")
-st.title("🗂️ ShivaSafe | File Manager")
+st.set_page_config(page_title="ShivaSafe Admin Upload", layout="wide")
+st.title("ShivaSafe | Admin Upload")
 
 TMP_DIR = "tmp"
-ADMIN_PASSWORD = "shiva2024"  # ← Same as app.py
+ADMIN_PASSWORD = "shiva2024"
 
-# Authentication
+# Secure auth flow
 if "auth" not in st.session_state:
     st.session_state.auth = False
+
 if not st.session_state.auth:
-    password = st.text_input("Enter admin password:", type="password")
-    if password == ADMIN_PASSWORD:
-        st.session_state.auth = True
-        st.experimental_rerun()
-    else:
-        st.stop()
+    with st.container():
+        st.markdown("#### 🔒 Admin Login")
+        password = st.text_input("Enter admin password:", type="password")
+        if password == ADMIN_PASSWORD:
+            st.session_state.auth = True
+            if not st.session_state.get("rerun_done"):
+                st.session_state.rerun_done = True
+                st.experimental_rerun()
+        else:
+            st.stop()
 
-# Load files
-all_files = os.listdir(TMP_DIR)
-yaml_files = [f for f in all_files if f.endswith("_entities.yaml")]
-if not yaml_files:
-    st.info("No uploaded evidence files found.")
-    st.stop()
+# Upload form
+with st.expander("📤 Upload Forensic Evidence", expanded=True):
+    with st.form("upload_form", clear_on_submit=True):
+        pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
+        yaml_file = st.file_uploader("Upload YAML", type=["yaml", "yml"])
+        submitted = st.form_submit_button("Submit")
 
-yaml_files.sort(reverse=True)
+        if submitted and pdf_file and yaml_file:
+            pdf_bytes = pdf_file.read()
+            hash_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
+            date_stamp = datetime.datetime.now().strftime("%Y-%m-%d")
+            base = f"{date_stamp}_{hash_id}"
 
-st.markdown("### 📋 Uploaded Documents")
-for fname in yaml_files:
-    base = fname.replace("_entities.yaml", "")
-    pdf_path = os.path.join(TMP_DIR, base + ".pdf")
-    yaml_path = os.path.join(TMP_DIR, fname)
+            os.makedirs(TMP_DIR, exist_ok=True)
+            with open(os.path.join(TMP_DIR, base + ".pdf"), "wb") as f:
+                f.write(pdf_bytes)
+            with open(os.path.join(TMP_DIR, base + "_entities.yaml"), "wb") as f:
+                f.write(yaml_file.read())
 
-    try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        doc = data.get("document", base)
-        sha = data.get("sha256", "")[:12]
-        created = data.get("creation_date", "—")
-        tx_count = len(data.get("transactions", []))
-    except:
-        doc = base
-        sha = "—"
-        created = "—"
-        tx_count = 0
-
-    cols = st.columns([2, 2, 2, 2, 1])
-    cols[0].markdown(f"📄 **{doc}**")
-    cols[1].markdown(f"🕓 `{created}`")
-    cols[2].markdown(f"🔢 `{tx_count} tx`")
-    cols[3].markdown(f"🔑 `{sha}`")
-    if cols[4].button("🗑️ Delete", key=fname):
-        try:
-            os.remove(yaml_path)
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
-            st.success(f"Deleted {doc}")
+            st.success(f"Uploaded as `{base}`")
             st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Failed to delete {doc}: {e}")
