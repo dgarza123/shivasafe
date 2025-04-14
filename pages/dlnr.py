@@ -4,7 +4,7 @@ import yaml
 import pandas as pd
 
 st.set_page_config(page_title="DLNR Checker", layout="wide")
-st.title("🗺️ DLNR Parcel Anomaly Checker")
+st.title("DLNR Parcel Anomaly Checker")
 
 EVIDENCE_DIR = "evidence"
 yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
@@ -35,12 +35,12 @@ df = pd.DataFrame(parcels)
 dlnr_missing = df[df["DLNR Match"] != True]
 dlnr_confirmed = df[df["DLNR Match"] == True]
 
-st.subheader("❗ Missing from DLNR")
+st.subheader("Parcels Not Found in DLNR")
 st.dataframe(dlnr_missing, use_container_width=True)
 
 st.markdown("---")
 
-st.subheader("✅ DLNR Confirmed")
+st.subheader("DLNR-Confirmed Parcels")
 st.dataframe(dlnr_confirmed, use_container_width=True)
 
-st.download_button("📥 Download DLNR Issues (CSV)", dlnr_missing.to_csv(index=False), "dlnr_issues.csv")
+st.download_button("Download DLNR Issues (CSV)", dlnr_missing.to_csv(index=False), "dlnr_issues.csv")
