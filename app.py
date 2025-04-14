@@ -5,14 +5,13 @@ import yaml
 import json
 from datetime import datetime
 import pandas as pd
-import time
 
 st.set_page_config(layout="wide")
 st.title("🧾 ShivaSafe Forensic Transaction Dashboard")
 
 # === 🔐 Admin Upload Access
 admin_pass = st.sidebar.text_input("🔒 Admin Key", type="password")
-is_admin = admin_pass == "shiva2024"  # <-- You can change this key
+is_admin = admin_pass == "shiva2024"  # <-- Change to your secure key
 
 # === Admin Upload Interface (Visible only to you)
 if is_admin:
@@ -22,26 +21,26 @@ if is_admin:
     uploaded_yaml = st.sidebar.file_uploader("Upload YAML", type=["yaml", "yml"], key="yaml")
 
     if uploaded_pdf and uploaded_yaml:
-        # Get bytes + hash + timestamp
+        # Read and hash PDF
         file_bytes = uploaded_pdf.read()
         sha = hashlib.sha256(file_bytes).hexdigest()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         base_name = f"{timestamp}_{sha[:12]}"
 
-        # Save both files
+        # Save files to /tmp
         pdf_path = f"/tmp/{base_name}.pdf"
         yaml_path = f"/tmp/{base_name}_entities.yaml"
 
         with open(pdf_path, "wb") as f:
             f.write(file_bytes)
+
         with open(yaml_path, "wb") as f:
             f.write(uploaded_yaml.getbuffer())
 
         st.sidebar.success(f"✅ Uploaded `{base_name}.pdf` and YAML")
-        time.sleep(0.5)
-        st.experimental_rerun()
+        st.stop()  # Avoid rerun issues
 
-# === 📂 Load YAML Files (backend-prepared)
+# === 📂 Load YAML Transactions
 def load_all_transactions():
     entries = []
     for f in os.listdir("/tmp"):
@@ -62,7 +61,7 @@ if not transactions:
     st.warning("No transactions found.")
     st.stop()
 
-# === 📊 Build Display Table
+# === 📊 Convert to DataFrame
 def safe_date(d):
     try:
         return datetime.strptime(str(d).strip(), "%Y-%m-%d")
@@ -82,13 +81,13 @@ df = pd.DataFrame([
     for t in transactions if t.get("amount")
 ])
 
-# === 🔍 Sort and Display
+# === 📋 Display + Sorting
 st.markdown("### 📋 Latest Extracted Transactions")
 sort_by = st.selectbox("Sort by", ["Date", "Amount", "Beneficiary"])
 df = df.sort_values(sort_by, ascending=(sort_by != "Amount"))
 st.dataframe(df, use_container_width=True)
 
-# === Detail Viewer
+# === 🔎 Detail View
 selected = st.selectbox("Select a case file to view details", df["Source File"].unique())
 
 with open(os.path.join("/tmp", selected), "r", encoding="utf-8") as f:
@@ -99,7 +98,7 @@ for i, tx in enumerate(case_data.get("transactions", []), 1):
     st.markdown(f"#### Transaction {i}")
     st.json(tx)
 
-# === Footer Navigation
+# === 🔗 Navigation
 st.markdown("---")
 st.markdown("🗂 Use the sidebar to view:")
 st.markdown("- 🌍 [Map Viewer](Map Viewer)")
