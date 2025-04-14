@@ -2,38 +2,34 @@ import streamlit as st
 import os
 import yaml
 
-st.set_page_config(page_title="Admin Manager", layout="wide")
-st.title("Manage Uploaded Evidence")
+st.set_page_config(page_title="Admin Panel", layout="wide")
+st.title("Evidence File Manager")
 
 EVIDENCE_DIR = "evidence"
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-all_files = sorted(os.listdir(EVIDENCE_DIR))
-yaml_files = [f for f in all_files if f.endswith("_entities.yaml")]
+yaml_files = [f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entities.yaml")]
 
 if not yaml_files:
-    st.info("No evidence files found.")
+    st.info("No YAML files in evidence folder.")
     st.stop()
 
-for fname in yaml_files:
-    base = fname.replace("_entities.yaml", "")
+for yaml_name in sorted(yaml_files):
+    base = yaml_name.replace("_entities.yaml", "")
     pdf_path = os.path.join(EVIDENCE_DIR, base + ".pdf")
-    yaml_path = os.path.join(EVIDENCE_DIR, fname)
+    yaml_path = os.path.join(EVIDENCE_DIR, yaml_name)
 
     try:
         with open(yaml_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        doc = data.get("document", base + ".pdf")
         tx_count = len(data.get("transactions", []))
-        st.markdown(f"#### 📄 `{doc}` | {tx_count} transactions")
-        st.markdown(f"- YAML: `{fname}`")
-        st.markdown(f"- PDF: `{base}.pdf`")
+        st.markdown(f"### 📄 `{base}` | {tx_count} transactions")
 
-        if st.button(f"🗑 Delete `{base}`", key=fname):
+        if st.button(f"🗑 Delete `{base}`", key=base):
             os.remove(yaml_path)
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
-            st.success(f"Deleted `{base}`")
+            st.success(f"Deleted {base}")
             st.experimental_rerun()
     except Exception as e:
-        st.warning(f"Could not load {fname}: {e}")
+        st.warning(f"Error reading {yaml_name}: {e}")
