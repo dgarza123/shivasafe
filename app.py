@@ -1,42 +1,51 @@
 import streamlit as st
-import yaml
-import os
-from io import StringIO
 import hashlib
-from pathlib import Path
-from file_storage import save_uploaded_pair, list_saved_cases
+import os
+import json
+import yaml
 
-st.set_page_config(page_title="Forensic Document Intelligence Portal", layout="wide")
-st.title("📁 Forensic Document Intelligence Portal")
-st.markdown("Upload forensic YAML + PDF pairs to explore entities, transactions, parcels, and patterns.")
+from modules.decode_controller import run_full_decode
+from modules.entity_extraction import extract_entities
+from modules.registry_scanner import extract_registry_keys
+from modules.suppression_detector import flag_suppressed_blocks
 
-# Initialize session state
-if "yaml_data" not in st.session_state:
-    st.session_state.yaml_data = list_saved_cases()
+st.set_page_config(layout="wide")
+st.title("🧾 ShivaSafe Forensic PDF Decoder")
 
-# Upload Forensic YAML + PDF
-st.sidebar.markdown("---")
-st.sidebar.subheader("📤 Upload YAML + PDF")
-yaml_file = st.sidebar.file_uploader("YAML file", type=["yaml", "yml"], key="yaml_upload")
-pdf_file = st.sidebar.file_uploader("Matching PDF file", type="pdf", key="pdf_upload")
+# === Upload
+uploaded_files = st.file_uploader("Upload one or more PDF containers", type=["pdf"], accept_multiple_files=True)
 
-if yaml_file and pdf_file:
-    if st.sidebar.button("Save Evidence"):
-        try:
-            parsed_yaml = save_uploaded_pair(yaml_file, pdf_file)
-            st.session_state.yaml_data.append(parsed_yaml)
-            st.sidebar.success(f"✅ Saved: {yaml_file.name} + {pdf_file.name}")
-        except Exception as e:
-            st.sidebar.error(f"❌ Upload failed: {e}")
+if uploaded_files:
+    st.markdown("### 🔍 Uploaded Files")
+    for file in uploaded_files:
+        file_bytes = file.read()
+        sha256 = hashlib.sha256(file_bytes).hexdigest()
+        filename = file.name
 
-# Display Home content
-if not st.session_state.yaml_data:
-    st.info("Upload YAML + PDF pairs to begin analysis.")
-else:
-    st.success("✅ Cases loaded from evidence folder.")
-    st.write("Explore cross-linked transactions, flagged entities, escrow trails, and parcel status using the top-left Pages navigation panel.")
+        # Save to /tmp
+        tmp_path = f"/tmp/{sha256}.pdf"
+        with open(tmp_path, "wb") as f:
+            f.write(file_bytes)
 
-    st.subheader("Loaded Cases:")
-    for entry in st.session_state.yaml_data:
-        link = entry.get("_pdf_path")
-        st.markdown(f"- `{entry['_uploaded_filename']}` | SHA256: `{entry['_sha256'][:12]}...` [📄 View PDF]({link})")
+        # Process
+        st.info(f"📄 Processing `{filename}` …")
+        decoded_blocks = run_full_decode(file_bytes)
+
+        # Registry keys + entity extraction
+        entities = extract_entities(decoded_blocks)
+        registry_keys = extract_registry_keys(decoded_blocks)
+        flagged_blocks = flag_suppressed_blocks(decoded_blocks)
+
+        # Save JSON/YAML output
+        json_path = f"/tmp/{sha256}_blocks.json"
+        yaml_path = f"/tmp/{sha256}_entities.yaml"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(decoded_blocks, f, indent=2)
+
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.dump({"transactions": entities}, f, sort_keys=False)
+
+        # Show success message and rerun
+        st.success(f"✅ `{filename}` processed and saved.")
+        st.experimental_rerun()
