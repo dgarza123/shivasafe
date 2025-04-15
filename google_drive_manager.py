@@ -5,10 +5,10 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# ✅ Folder ID where all evidence files are stored
+# ✅ Your verified Google Drive folder
 DRIVE_FOLDER_ID = "1Cxhy9WstQ5-XWHx9ZtVXLHaZqBGHbs5n"
 
-# ✅ Get Drive API service
+# ✅ Initialize Google Drive service
 def get_drive_service():
     try:
         import streamlit as st
@@ -23,7 +23,7 @@ def get_drive_service():
         )
     return build("drive", "v3", credentials=credentials)
 
-# ✅ Upload a local file to Drive folder
+# ✅ Upload file to Drive folder
 def upload_to_drive(filepath: str) -> str:
     service = get_drive_service()
     filename = os.path.basename(filepath)
@@ -34,10 +34,12 @@ def upload_to_drive(filepath: str) -> str:
         "parents": [DRIVE_FOLDER_ID]
     }
     media = MediaFileUpload(filepath, mimetype=mime_type, resumable=True)
-    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    uploaded_file = service.files().create(
+        body=file_metadata, media_body=media, fields="id"
+    ).execute()
     return uploaded_file.get("id")
 
-# ✅ List all files currently in the Drive folder
+# ✅ List all files in Drive folder
 def list_drive_files():
     service = get_drive_service()
     results = service.files().list(
@@ -46,7 +48,7 @@ def list_drive_files():
     ).execute()
     return results.get("files", [])
 
-# ✅ Download a file from Drive to a local path
+# ✅ Download file from Drive
 def download_drive_file(file_id, destination_path):
     service = get_drive_service()
     request = service.files().get_media(fileId=file_id)
