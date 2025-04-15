@@ -1,10 +1,8 @@
 import pandas as pd
 import sqlite3
 
-# Load CSV
 df = pd.read_csv("Hawaii.csv")
 
-# Create DB
 conn = sqlite3.connect("Hawaii.db")
 cursor = conn.cursor()
 
@@ -26,3 +24,5 @@ for _, row in df.iterrows():
 
 conn.commit()
 conn.close()
+
+print("✅ Hawaii.db created successfully.")
