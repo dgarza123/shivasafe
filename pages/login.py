@@ -1,7 +1,8 @@
 import streamlit as st
+st.set_page_config(page_title="Login", layout="centered")
+
 from login_manager import login, logout, is_logged_in, current_user, current_role
 
-st.set_page_config(page_title="Login", layout="centered")
 st.title("🔐 Login")
 
 if is_logged_in():
