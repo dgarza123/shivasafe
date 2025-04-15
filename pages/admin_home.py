@@ -2,11 +2,16 @@ import streamlit as st
 import os
 import yaml
 from datetime import datetime
+
+# ✅ Ensure imports work from root
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
+
 from login_manager import require_editor
 from google_drive_manager import upload_to_drive
 from drive_sync import sync_drive_to_local
 
-# Require login as editor
+# ✅ Require editor access
 require_editor()
 
 st.set_page_config(page_title="Admin Panel", layout="wide")
