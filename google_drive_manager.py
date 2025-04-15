@@ -6,18 +6,22 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# ✅ Google Drive folder for all evidence files
+# ✅ Google Drive folder for all uploads/syncs
 DRIVE_FOLDER_ID = "1Cxhy9WstQ5-XWHx9ZtVXLHaZqBGHbs5n"
 
-# ✅ Get Drive service using credentials from Streamlit secrets
+# ✅ Load credentials securely from Streamlit secrets.toml
 def get_drive_service():
-    credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gdrive"],
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gdrive"],
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+    except Exception as e:
+        st.error("🔐 Google Drive secret missing or invalid in `.streamlit/secrets.toml`.")
+        st.stop()
     return build("drive", "v3", credentials=credentials)
 
-# ✅ Upload a file to Google Drive
+# ✅ Upload a file to Drive folder
 def upload_to_drive(filepath: str) -> str:
     service = get_drive_service()
     filename = os.path.basename(filepath)
@@ -28,10 +32,12 @@ def upload_to_drive(filepath: str) -> str:
         "parents": [DRIVE_FOLDER_ID]
     }
     media = MediaFileUpload(filepath, mimetype=mime_type, resumable=True)
-    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    uploaded_file = service.files().create(
+        body=file_metadata, media_body=media, fields="id"
+    ).execute()
     return uploaded_file.get("id")
 
-# ✅ List all files in the evidence folder
+# ✅ List files already in Drive folder
 def list_drive_files():
     service = get_drive_service()
     results = service.files().list(
@@ -40,12 +46,12 @@ def list_drive_files():
     ).execute()
     return results.get("files", [])
 
-# ✅ Download a file from Drive by ID
-def download_drive_file(file_id, destination_path):
+# ✅ Download a Drive file by ID to a local path
+def download_drive_file(file_id: str, destination_path: str):
     service = get_drive_service()
     request = service.files().get_media(fileId=file_id)
     fh = io.FileIO(destination_path, 'wb')
     downloader = MediaIoBaseDownload(fh, request)
     done = False
     while not done:
-        status, done = downloader.next_chunk()
+        _, done = downloader.next_chunk()
