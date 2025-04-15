@@ -4,7 +4,7 @@ import os
 
 USERS_FILE = "users.yaml"
 
-# Load user accounts from YAML
+# Load users from YAML
 try:
     with open(USERS_FILE, "r", encoding="utf-8") as f:
         users = yaml.safe_load(f) or {}
@@ -12,6 +12,7 @@ except FileNotFoundError:
     users = {}
     print("[LOGIN ERROR] users.yaml not found.")
 
+# Authenticate and store session state
 def login(username, password):
     user = users.get(username)
     if user and user["password"] == password:
@@ -20,13 +21,20 @@ def login(username, password):
         return True
     return False
 
-def require_editor():
-    if "user" not in st.session_state or st.session_state.get("role") != "editor":
-        st.error("🔐 Editor access required.")
-        st.stop()
+# Check login status
+def is_logged_in():
+    return "user" in st.session_state
 
-def is_editor():
-    return st.session_state.get("role") == "editor"
-
+# Get current user or role
 def current_user():
     return st.session_state.get("user")
+
+def current_role():
+    return st.session_state.get("role", "viewer")
+
+# Logout
+def logout():
+    st.session_state.pop("user", None)
+    st.session_state.pop("role", None)
+
+# Enforce editor access
