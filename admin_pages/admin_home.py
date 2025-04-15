@@ -1,40 +1,36 @@
-
 import streamlit as st
 import os
 import yaml
 from datetime import datetime
+from login_manager import require_editor
+from google_drive_manager import upload_to_drive
+from drive_sync import sync_drive_to_evidence
 
+require_editor()
 st.set_page_config(page_title="Admin Panel", layout="wide")
 st.title("Admin Control Panel")
 
-CONFIG_PATH = "config.yaml"
 EVIDENCE_DIR = "evidence"
-
-# Load password
-with open(CONFIG_PATH, "r") as f:
-    config = yaml.safe_load(f)
-ADMIN_PASSWORD = config.get("admin_password")
-
-# Authenticate
-if "admin_logged_in" not in st.session_state:
-    st.session_state.admin_logged_in = False
-
-if not st.session_state.admin_logged_in:
-    pw = st.text_input("Enter admin password:", type="password")
-    if pw == ADMIN_PASSWORD:
-        st.session_state.admin_logged_in = True
-        st.rerun()  # <-- FIXED
-    else:
-        st.stop()
-
-st.success("✅ Access granted")
 
 # === Quick Access Links ===
 st.subheader("Quick Access")
-st.markdown("- [Upload Evidence](upload)")
-st.markdown("- [Fix YAML Structure](fix_yaml)")
+st.markdown("- [Upload Evidence to Drive](upload_to_drive)")
 st.markdown("- [Return to Viewer](timeline)")
 st.markdown("- [🧾 Download Reports](download_reports)")
+
+# === Google Drive Sync ===
+st.markdown("---")
+st.subheader("Google Drive Sync")
+
+if st.button("🔄 Sync YAML + PDF from Drive"):
+    with st.spinner("Syncing files from Google Drive..."):
+        downloaded = sync_drive_to_evidence()
+        if downloaded:
+            st.success(f"Downloaded {len(downloaded)} new file(s).")
+            for f in downloaded:
+                st.markdown(f"- `{f}`")
+        else:
+            st.info("No new files downloaded.")
 
 # === Upload File to Root Directory ===
 st.markdown("---")
@@ -67,34 +63,33 @@ yaml_files = sorted([f for f in os.listdir(EVIDENCE_DIR) if f.endswith("_entitie
 
 if not yaml_files:
     st.info("No evidence YAMLs found in /evidence/")
-    st.stop()
+else:
+    for yaml_name in yaml_files:
+        base = yaml_name.replace("_entities.yaml", "")
+        yaml_path = os.path.join(EVIDENCE_DIR, yaml_name)
+        pdf_path = os.path.join(EVIDENCE_DIR, base + ".pdf")
 
-for yaml_name in yaml_files:
-    base = yaml_name.replace("_entities.yaml", "")
-    yaml_path = os.path.join(EVIDENCE_DIR, yaml_name)
-    pdf_path = os.path.join(EVIDENCE_DIR, base + ".pdf")
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            sha = data.get("sha256", "unknown")
+            tx_count = len(data.get("transactions", []))
+            mod_time = datetime.fromtimestamp(os.path.getmtime(yaml_path)).strftime('%Y-%m-%d %H:%M:%S')
 
-    try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        sha = data.get("sha256", "unknown")
-        tx_count = len(data.get("transactions", []))
-        mod_time = datetime.fromtimestamp(os.path.getmtime(yaml_path)).strftime('%Y-%m-%d %H:%M:%S')
+            st.markdown(f"### `{base}`")
+            st.caption(f"Last Modified: {mod_time}")
+            st.markdown(f"- SHA256: `{sha}`")
+            st.markdown(f"- Transactions: **{tx_count}**")
 
-        st.markdown(f"### `{base}`")
-        st.caption(f"Last Modified: {mod_time}")
-        st.markdown(f"- SHA256: `{sha}`")
-        st.markdown(f"- Transactions: **{tx_count}**")
+            if st.button(f"🗑 Delete {base}", key=base):
+                try:
+                    os.remove(yaml_path)
+                    if os.path.exists(pdf_path):
+                        os.remove(pdf_path)
+                    st.success(f"Deleted {base}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to delete {base}: {e}")
 
-        if st.button(f"🗑 Delete {base}", key=base):
-            try:
-                os.remove(yaml_path)
-                if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
-                st.success(f"Deleted {base}")
-                st.rerun()  # <-- FIXED
-            except Exception as e:
-                st.error(f"Failed to delete {base}: {e}")
-
-    except Exception as e:
-        st.warning(f"Could not load {yaml_name}: {e}")
+        except Exception as e:
+            st.warning(f"Could not load {yaml_name}: {e}")
