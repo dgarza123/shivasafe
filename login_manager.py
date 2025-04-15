@@ -1,19 +1,17 @@
 import streamlit as st
 import yaml
-import os
 
-USERS_FILE = "users.yaml"
+USERS_YAML_PATH = "users.yaml"
 
-# Load users from YAML
-try:
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        users = yaml.safe_load(f) or {}
-except FileNotFoundError:
-    users = {}
-    print("[LOGIN ERROR] users.yaml not found.")
+def load_users():
+    try:
+        with open(USERS_YAML_PATH, "r") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
 
-# Authenticate and store session state
 def login(username, password):
+    users = load_users()
     user = users.get(username)
     if user and user["password"] == password:
         st.session_state["user"] = username
@@ -21,20 +19,24 @@ def login(username, password):
         return True
     return False
 
-# Check login status
+def logout():
+    for key in ["user", "role"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
 def is_logged_in():
     return "user" in st.session_state
 
-# Get current user or role
 def current_user():
-    return st.session_state.get("user")
+    return st.session_state.get("user", None)
 
 def current_role():
     return st.session_state.get("role", "viewer")
 
-# Logout
-def logout():
-    st.session_state.pop("user", None)
-    st.session_state.pop("role", None)
+def is_editor():
+    return st.session_state.get("role") == "editor"
 
-# Enforce editor access
+def require_editor():
+    if not is_logged_in() or not is_editor():
+        st.error("🔐 Editor access required.")
+        st.stop()
