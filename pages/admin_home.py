@@ -3,20 +3,17 @@ import os
 import yaml
 from datetime import datetime
 
-# ✅ Allow root-level imports (for Google Drive modules)
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# ✅ Standard imports from utils package
+from utils.google_drive_manager import upload_to_drive
+from utils.drive_sync import sync_drive_to_local
 
-from google_drive_manager import upload_to_drive
-from drive_sync import sync_drive_to_local
-
-# ✅ Inline require_editor() — avoids import issues
+# ✅ Inline require_editor()
 def require_editor():
     if "user" not in st.session_state or st.session_state.get("role") != "editor":
         st.error("🔐 Editor access required.")
         st.stop()
 
-# ✅ Enforce editor login
+# ✅ Enforce login
 require_editor()
 
 st.set_page_config(page_title="Admin Panel", layout="wide")
