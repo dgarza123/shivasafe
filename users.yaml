@@ -1,0 +1,12 @@
+users:
+  admin:admyn
+    password:ShivaX247$
+    role: editor
+
+  editor1:
+    password: uploadonly
+    role: editor
+
+  viewer1:
+    password: readonly
+    role: viewer
