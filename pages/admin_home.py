@@ -2,10 +2,15 @@ import streamlit as st
 import os
 import yaml
 from datetime import datetime
+
+# ✅ Allow root-level imports (for Google Drive modules)
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from google_drive_manager import upload_to_drive
 from drive_sync import sync_drive_to_local
 
-# ✅ Inline require_editor() to bypass import issues
+# ✅ Inline require_editor() — avoids import issues
 def require_editor():
     if "user" not in st.session_state or st.session_state.get("role") != "editor":
         st.error("🔐 Editor access required.")
@@ -79,4 +84,15 @@ with st.form("admin_drive_upload"):
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 
-            os
+            os.remove(temp_path)
+
+# === Sync from Google Drive ===
+st.markdown("---")
+st.subheader("🔄 Sync Evidence from Google Drive")
+
+if st.button("Sync now"):
+    synced = sync_drive_to_local()
+    if synced:
+        st.success(f"Synced {len(synced)} new files from Drive.")
+    else:
+        st.info("All files are already synced.")
