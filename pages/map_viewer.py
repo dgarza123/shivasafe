@@ -2,30 +2,14 @@ import streamlit as st
 import pydeck as pdk
 import os
 import yaml
-import pandas as pd
+from hawaii_db import get_coordinates_by_tmk
 
 st.set_page_config(page_title="Transaction Map", layout="wide")
 st.title("Offshore Transaction Map")
 
 EVIDENCE_DIR = "evidence"
-CENTROIDS_CSV = "Hawaii.csv"  # <== You uploaded this to the root
-DEFAULT_COORDS = [21.3069, -157.8583]  # Fallback: Honolulu
+DEFAULT_COORDS = [21.3069, -157.8583]  # Honolulu
 
-# Load TMK centroid lookup
-tmk_lookup = {}
-try:
-    df = pd.read_csv(CENTROIDS_CSV)
-    for _, row in df.iterrows():
-        tmk = str(row["TMK"]).strip()
-        lat = float(row["Latitude"])
-        lon = float(row["Longitude"])
-        if lat != 0 and lon != 0:
-            tmk_lookup[tmk] = (lat, lon)
-except Exception as e:
-    st.error(f"Failed to load parcel coordinates: {e}")
-    st.stop()
-
-# Read YAML files
 def load_yaml_pairs():
     pairs = []
     for fname in os.listdir(EVIDENCE_DIR):
@@ -39,7 +23,6 @@ def load_yaml_pairs():
                 st.warning(f"Could not read {fname}: {e}")
     return pairs
 
-# Generate arcs
 def extract_lines(yaml_data, filename):
     lines = []
     for tx in yaml_data.get("transactions", []):
@@ -49,7 +32,7 @@ def extract_lines(yaml_data, filename):
             continue
 
         tmk = str(tx.get("parcel_id", "")).strip()
-        origin = tmk_lookup.get(tmk, DEFAULT_COORDS)
+        origin = get_coordinates_by_tmk(tmk) or DEFAULT_COORDS
 
         label = f"{tx.get('grantee', '')} | {tx.get('amount', '')} | {tmk}"
         if tx.get("registry_key"):
@@ -68,7 +51,6 @@ def extract_lines(yaml_data, filename):
         })
     return lines
 
-# Build data for map
 all_lines = []
 for fname, ydata in load_yaml_pairs():
     all_lines.extend(extract_lines(ydata, fname))
@@ -77,7 +59,6 @@ if not all_lines:
     st.info("No offshore transactions found.")
     st.stop()
 
-# Render pydeck map
 layer = pdk.Layer(
     "ArcLayer",
     data=all_lines,
