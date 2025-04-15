@@ -1,68 +1,73 @@
 import streamlit as st
-import os
-import hashlib
-import datetime
-import yaml
-import glob
+from pages.timeline import load_transactions
+from hawaii_db import get_coordinates_by_tmk
+import pydeck as pdk
 
-# Load password from config.yaml
-CONFIG_PATH = "config.yaml"
-with open(CONFIG_PATH, "r") as f:
-    config = yaml.safe_load(f)
-ADMIN_PASSWORD = config.get("admin_password")
-if not ADMIN_PASSWORD:
-    st.error("Admin password missing in config.yaml")
-    st.stop()
+st.set_page_config(page_title="Shiva PDF", layout="wide")
+st.title("Shiva PDF")
 
-st.set_page_config(page_title="ShivaSafe | Upload Evidence", layout="wide")
-st.title("📤 ShivaSafe Evidence Uploader")
+# Description
+st.markdown("This platform provides a public interface to explore concealed real estate transactions derived from decoded PDF records. Data includes parcel transfers, offshore activity, and entity linkages.")
 
-TMP_DIR = "tmp"
-os.makedirs(TMP_DIR, exist_ok=True)
-
-# Authentication
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-if not st.session_state.auth:
-    st.markdown("#### 🔒 Admin Login")
-    password = st.text_input("Enter admin password:", type="password")
-    if password == ADMIN_PASSWORD:
-        st.session_state.auth = True
-        st.rerun()  # FIXED HERE
-    else:
-        st.stop()
-
-# Upload form
-with st.expander("📎 Upload New Evidence Pair", expanded=True):
-    with st.form("upload_form", clear_on_submit=True):
-        pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
-        yaml_file = st.file_uploader("Upload YAML", type=["yaml", "yml"])
-        submitted = st.form_submit_button("Submit")
-
-        if submitted and pdf_file and yaml_file:
-            try:
-                pdf_bytes = pdf_file.read()
-                hash_id = hashlib.sha256(pdf_bytes).hexdigest()
-                short_hash = hash_id[:12]
-                date_stamp = datetime.datetime.now().strftime("%Y-%m-%d")
-                base = f"{date_stamp}_{short_hash}"
-
-                pdf_path = os.path.join(TMP_DIR, base + ".pdf")
-                yaml_path = os.path.join(TMP_DIR, base + "_entities.yaml")
-
-                with open(pdf_path, "wb") as f:
-                    f.write(pdf_bytes)
-                with open(yaml_path, "wb") as f:
-                    f.write(yaml_file.read())
-
-                st.success(f"✅ Uploaded: `{os.path.basename(pdf_path)}` and `{os.path.basename(yaml_path)}`")
-                st.code(f"SHA-256: {hash_id}", language="bash")
-                st.rerun()  # FIXED HERE
-            except Exception as e:
-                st.error(f"Upload failed: {e}")
-
-# Summary panel
-yaml_files = glob.glob("evidence/*_entities.yaml")
 st.markdown("---")
-st.subheader("📂 Current Evidence")
-st.write(f"Total YAML Evidence Files: **{len(yaml_files)}**")
+
+# Timeline Preview (Latest 5)
+st.subheader("Recent Transactions")
+
+timeline = load_transactions()
+preview = sorted(timeline, key=lambda x: x["timestamp"], reverse=True)[:5]
+
+for tx in preview:
+    st.markdown(f"**{tx['file']}** — {tx['timestamp']}")
+    st.markdown(f"- Grantor: {tx['grantor']}")
+    st.markdown(f"- Grantee: {tx['grantee']}")
+    st.markdown(f"- Amount: {tx['amount']}")
+    st.markdown(f"- Parcel ID: {tx['parcel_id']}")
+    if tx.get("registry_key"):
+        st.markdown(f"- Registry Key: {tx['registry_key']}")
+    st.markdown("---")
+
+# Offshore Map Snapshot
+st.subheader("Offshore Transfer Snapshot")
+
+lines = []
+for tx in timeline:
+    if "offshore_note" not in tx:
+        continue
+    tmk = tx.get("parcel_id", "").strip()
+    coords = get_coordinates_by_tmk(tmk)
+    if not coords:
+        continue
+    lines.append({
+        "from_lat": coords[0],
+        "from_lon": coords[1],
+        "to_lat": 13.41,
+        "to_lon": 122.56,
+        "label": tx["grantee"]
+    })
+
+if lines:
+    layer = pdk.Layer(
+        "ArcLayer",
+        data=lines,
+        get_source_position=["from_lon", "from_lat"],
+        get_target_position=["to_lon", "to_lat"],
+        get_source_color=[200, 30, 0],
+        get_target_color=[0, 60, 180],
+        width_scale=0.0001,
+        get_width=30,
+        pickable=True,
+    )
+
+    view_state = pdk.ViewState(
+        latitude=21.3,
+        longitude=-157.8,
+        zoom=2,
+        bearing=0,
+        pitch=30,
+    )
+
+    st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
+
+else:
+    st.info("No offshore transfers available to display.")
