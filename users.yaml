@@ -1,7 +1,4 @@
-editor1:
-  password: letmein123
-  role: editor
-
-viewer:
-  password: viewonly
-  role: viewer
+users:
+  - username: davehattan
+    password: Fiji4531
+    role: editor
