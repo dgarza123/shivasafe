@@ -22,7 +22,7 @@ if not st.session_state.admin_logged_in:
     pw = st.text_input("Enter admin password:", type="password")
     if pw == ADMIN_PASSWORD:
         st.session_state.admin_logged_in = True
-        st.rerun()
+        st.rerun()  # <-- FIXED
     else:
         st.stop()
 
@@ -91,7 +91,7 @@ for yaml_name in yaml_files:
                 if os.path.exists(pdf_path):
                     os.remove(pdf_path)
                 st.success(f"Deleted {base}")
-                st.rerun()
+                st.rerun()  # <-- FIXED
             except Exception as e:
                 st.error(f"Failed to delete {base}: {e}")
 
