@@ -1,39 +1,32 @@
 import os
-import io
 import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+from google_drive_manager import list_drive_files, download_drive_file
 
-# Google Drive folder for persistent evidence
-FOLDER_ID = "1Cxhy9WstQ5-XWHx9ZtVXLHaZqBGHbs5n"
+EVIDENCE_DIR = "evidence"
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-# Load credentials from Streamlit secrets
-SCOPES = ["https://www.googleapis.com/auth/drive"]
-credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["gdrive"], scopes=SCOPES
-)
-drive_service = build("drive", "v3", credentials=credentials)
+def sync_drive_to_local():
+    """
+    Downloads all YAML and PDF files from Drive into /evidence/.
+    """
+    synced_files = []
+    drive_files = list_drive_files()
 
-def upload_to_drive(local_path, remote_filename=None):
-    file_metadata = {
-        "name": remote_filename or os.path.basename(local_path),
-        "parents": [FOLDER_ID]
-    }
-    media = MediaIoBaseUpload(open(local_path, "rb"), mimetype="application/octet-stream")
-    uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    return uploaded.get("id")
+    for file in drive_files:
+        name = file.get("name", "")
+        file_id = file.get("id")
 
-def list_drive_files():
-    query = f"'{FOLDER_ID}' in parents and trashed = false"
-    results = drive_service.files().list(q=query, fields="files(id, name, mimeType, modifiedTime)").execute()
-    return results.get("files", [])
+        if name.endswith(".yaml") or name.endswith(".pdf"):
+            local_path = os.path.join(EVIDENCE_DIR, name)
 
-def download_drive_file(file_id, save_as):
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = io.FileIO(save_as, "wb")
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    return save_as
+            # Skip if file already exists
+            if os.path.exists(local_path):
+                continue
+
+            try:
+                download_drive_file(file_id, local_path)
+                synced_files.append(name)
+            except Exception as e:
+                print(f"[sync] Failed to download {name}: {e}")
+
+    return synced_files
