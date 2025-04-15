@@ -3,7 +3,10 @@ import os
 import yaml
 from datetime import datetime
 
-# ✅ Standard imports from utils package
+# ✅ Manually patch Python path so /pages/ can see /utils/
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from utils.google_drive_manager import upload_to_drive
 from utils.drive_sync import sync_drive_to_local
 
