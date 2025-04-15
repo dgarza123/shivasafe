@@ -8,7 +8,7 @@ if is_logged_in():
     st.success(f"Logged in as: {current_user()} ({current_role()})")
     if st.button("Log out"):
         logout()
-        st.experimental_rerun()
+        st.rerun()
 else:
     with st.form("login_form"):
         username = st.text_input("Username")
@@ -18,6 +18,6 @@ else:
         if submitted:
             if login(username, password):
                 st.success("Login successful.")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Invalid credentials.")
