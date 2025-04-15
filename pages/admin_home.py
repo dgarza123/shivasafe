@@ -3,14 +3,14 @@ import os
 import yaml
 from datetime import datetime
 
-# ✅ Manually patch Python path so /pages/ can see /utils/
+# ✅ Allow root-level imports from /pages/
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from utils.google_drive_manager import upload_to_drive
-from utils.drive_sync import sync_drive_to_local
+from google_drive_manager import upload_to_drive
+from drive_sync import sync_drive_to_local
 
-# ✅ Inline require_editor()
+# ✅ Inline require_editor() to avoid broken imports
 def require_editor():
     if "user" not in st.session_state or st.session_state.get("role") != "editor":
         st.error("🔐 Editor access required.")
