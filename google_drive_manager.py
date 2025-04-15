@@ -1,31 +1,37 @@
 import os
-import streamlit as st
+import mimetypes
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-EVIDENCE_DIR = "evidence"
-os.makedirs(EVIDENCE_DIR, exist_ok=True)
+# ✅ Load credentials from Streamlit secrets or JSON file
+def get_drive_service():
+    if "gdrive" in os.environ:
+        import streamlit as st
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gdrive"],
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+    else:
+        credentials = service_account.Credentials.from_service_account_file(
+            "shiva-pdf-f5d0f5a2a433.json",
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+    return build("drive", "v3", credentials=credentials)
 
-def sync_drive_to_local():
-    """
-    Downloads all YAML and PDF files from Drive into /evidence/.
-    """
-    synced_files = []
-    drive_files = list_drive_files()
+# ✅ Define your destination folder ID
+DRIVE_FOLDER_ID = "1Cxhy9WstQ5-XWHx9ZtVXLHaZqBGHbs5n"  # Your actual Drive folder
 
-    for file in drive_files:
-        name = file.get("name", "")
-        file_id = file.get("id")
+# ✅ Upload a file to Google Drive
+def upload_to_drive(filepath: str) -> str:
+    service = get_drive_service()
+    filename = os.path.basename(filepath)
+    mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-        if name.endswith(".yaml") or name.endswith(".pdf"):
-            local_path = os.path.join(EVIDENCE_DIR, name)
-
-            # Skip if file already exists
-            if os.path.exists(local_path):
-                continue
-
-            try:
-                download_drive_file(file_id, local_path)
-                synced_files.append(name)
-            except Exception as e:
-                print(f"[sync] Failed to download {name}: {e}")
-
-    return synced_files
+    file_metadata = {
+        "name": filename,
+        "parents": [DRIVE_FOLDER_ID]
+    }
+    media = MediaFileUpload(filepath, mimetype=mime_type, resumable=True)
+    uploaded_file = service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    return uploaded_file.get("id")
