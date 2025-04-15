@@ -1,37 +1,30 @@
+import streamlit as st
 import os
-import io
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+from login_manager import require_editor
+from google_drive_manager import upload_to_drive
 
-SERVICE_ACCOUNT_FILE = "shiva-pdf-80b3c5254af7.json"
-SCOPES = ["https://www.googleapis.com/auth/drive"]
-FOLDER_ID = "1Cxhy9WstQ5-XWHx9ZtVXLHaZqBGHbs5n"  # ShivaSafe evidence folder
+st.set_page_config(page_title="Upload to Drive", layout="centered")
+require_editor()
 
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
-drive_service = build("drive", "v3", credentials=credentials)
+st.title("📤 Upload Evidence to Google Drive")
 
-def upload_to_drive(local_path, remote_filename=None):
-    file_metadata = {
-        "name": remote_filename or os.path.basename(local_path),
-        "parents": [FOLDER_ID]
-    }
-    media = MediaIoBaseUpload(open(local_path, "rb"), mimetype="application/octet-stream")
-    uploaded = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    return uploaded.get("id")
+with st.form("upload_form"):
+    uploaded_file = st.file_uploader("Choose a YAML or PDF file", type=["yaml", "pdf"])
+    submit = st.form_submit_button("Upload")
 
-def list_drive_files():
-    query = f"'{FOLDER_ID}' in parents and trashed = false"
-    results = drive_service.files().list(q=query, fields="files(id, name, mimeType, modifiedTime)").execute()
-    return results.get("files", [])
+    if submit:
+        if uploaded_file is None:
+            st.error("No file selected.")
+        else:
+            temp_path = os.path.join("temp", uploaded_file.name)
+            os.makedirs("temp", exist_ok=True)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.read())
 
-def download_drive_file(file_id, save_as):
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = io.FileIO(save_as, "wb")
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    return save_as
+            try:
+                file_id = upload_to_drive(temp_path)
+                st.success(f"Uploaded to Drive (ID: {file_id})")
+            except Exception as e:
+                st.error(f"Upload failed: {e}")
+
+            os.remove(temp_path)
