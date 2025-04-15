@@ -1,49 +1,47 @@
 import streamlit as st
-import pandas as pd
 import pydeck as pdk
+import pandas as pd
 
-st.set_page_config(page_title="Suppression Heatmap", layout="wide")
-st.title("🔥 TMK Suppression Heatmap")
+st.set_page_config(page_title="🧪 Minimal Map Test", layout="wide")
+st.title("🧪 TMK Suppression Map Debug")
 
 st.markdown("""
-This debug version renders a single hardcoded parcel to verify that the pydeck map engine is working.  
-If you see a green dot over Honolulu, rendering is confirmed ✅.
+This is a minimal test to verify map rendering.  
+You should see **one red dot** centered over Honolulu.  
+If nothing appears, it's a rendering issue (not data).
 """)
 
-# === Static test data
-df = pd.DataFrame([{
-    "TMK": "TEST-PARCEL-123",
-    "Latitude": 21.3069,
-    "Longitude": -157.8583,
-    "classification": "Debug Point",
-    "color": [0, 255, 0]
-}])
+# Test DataFrame with 1 point
+df = pd.DataFrame({
+    "lat": [21.3069],        # Latitude of Honolulu
+    "lon": [-157.8583]       # Longitude of Honolulu
+})
 
-# Show the data to confirm it's loading
-st.subheader("Loaded Data")
-st.write("Row count:", df.shape[0])
+st.subheader("📄 Test DataFrame:")
 st.dataframe(df)
 
-# === Build test map layer
+# Minimal Scatterplot Layer
 layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
-    get_position="[Longitude, Latitude]",
-    get_fill_color="color",
-    get_radius=100,
-    pickable=True
+    get_position='[lon, lat]',
+    get_radius=150,
+    get_fill_color=[255, 0, 0],
+    pickable=False
 )
 
+# View Settings
 view_state = pdk.ViewState(
-    latitude=21.3,
-    longitude=-157.85,
+    latitude=21.3069,
+    longitude=-157.8583,
     zoom=10,
     pitch=0
 )
 
-st.subheader("Rendered Map")
+# Display map
+st.subheader("🗺️ Rendered Map:")
 st.pydeck_chart(pdk.Deck(
+    map_style="mapbox://styles/mapbox/light-v9",
     layers=[layer],
-    initial_view_state=view_state,
-    tooltip={"text": "TMK: {TMK}\nStatus: {classification}"}
+    initial_view_state=view_state
 ))
