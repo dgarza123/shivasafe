@@ -1,12 +1,4 @@
 users:
-  admin:admyn
-    password:ShivaX247$
+  - username: dgarza
+    password: secret123
     role: editor
-
-  editor1:
-    password: uploadonly
-    role: editor
-
-  viewer1:
-    password: readonly
-    role: viewer
