@@ -28,7 +28,7 @@ if not st.session_state.auth:
     password = st.text_input("Enter admin password:", type="password")
     if password == ADMIN_PASSWORD:
         st.session_state.auth = True
-        st.experimental_rerun()
+        st.rerun()  # FIXED HERE
     else:
         st.stop()
 
@@ -57,7 +57,7 @@ with st.expander("📎 Upload New Evidence Pair", expanded=True):
 
                 st.success(f"✅ Uploaded: `{os.path.basename(pdf_path)}` and `{os.path.basename(yaml_path)}`")
                 st.code(f"SHA-256: {hash_id}", language="bash")
-                st.experimental_rerun()
+                st.rerun()  # FIXED HERE
             except Exception as e:
                 st.error(f"Upload failed: {e}")
 
