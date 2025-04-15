@@ -3,11 +3,8 @@ import os
 import yaml
 from datetime import datetime
 
-# ✅ Ensure imports work from root
-import sys
-sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-
-from login_manager import require_editor
+# ✅ Import from utils folder
+from utils.login_manager import require_editor
 from google_drive_manager import upload_to_drive
 from drive_sync import sync_drive_to_local
 
