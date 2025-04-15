@@ -1,4 +1,7 @@
-users:
-  - username: dgarza
-    password: secret123
-    role: editor
+editor1:
+  password: letmein123
+  role: editor
+
+viewer:
+  password: viewonly
+  role: viewer
