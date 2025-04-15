@@ -1,10 +1,10 @@
-document: testcase.pdf
-sha256: deadbeefdeadbeefdeadbeefdeadbeef
+sha256: test123
+document: test.pdf
 transactions:
-  - grantor: JOHN DOE
-    grantee: FAKE ESCROW TRUST
-    amount: "$850,000.00"
-    parcel_id: TMK 1-2-3:456
-    parcel_valid: false
-    registry_key: 0589990000
-    offshore_note: "Simulated routing to BDO Philippines"
+  - grantor: TEST GRANTOR
+    grantee: FAKE TRUST
+    amount: "$500,000"
+    parcel_id: 1-2-3:099
+    parcel_valid: true
+    registry_key: 0512345678
+    offshore_note: "BDO Philippines"
