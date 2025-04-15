@@ -1,4 +1,3 @@
-users:
-  - username: davehattan
-    password: Fiji4531
-    role: editor
+davehattan:
+  password: Fiji4531
+  role: editor
