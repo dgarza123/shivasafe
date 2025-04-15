@@ -3,12 +3,15 @@ import os
 import yaml
 from datetime import datetime
 
-# ✅ Import from utils folder
-from utils.login_manager import require_editor
+# ✅ Allow root-level imports from inside /pages/
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from login_manager import require_editor
 from google_drive_manager import upload_to_drive
 from drive_sync import sync_drive_to_local
 
-# ✅ Require editor access
+# ✅ Require login
 require_editor()
 
 st.set_page_config(page_title="Admin Panel", layout="wide")
