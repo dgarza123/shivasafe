@@ -1,7 +1,5 @@
 import streamlit as st
 from create_db import write_db_if_missing
-
-# Create the DB if needed
 write_db_if_missing()
 
 st.set_page_config(
