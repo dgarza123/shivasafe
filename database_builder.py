@@ -8,17 +8,14 @@ import sqlite3
 def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
     parcel_snapshots = {}
 
-    # Load 2015–2025 CSV parcel files
     for year in ["2015", "2018", "2022", "2025"]:
         csv_path = os.path.join(folder_path, f"Hawaii{year}.csv")
         if os.path.exists(csv_path):
             df = pd.read_csv(csv_path, dtype=str)
             parcel_snapshots[year] = df
             print(f"[✓] Loaded {csv_path} with {len(df)} rows")
-        else:
-            print(f"[!] Missing: {csv_path}")
 
-    # Load all YAML files from nested folders
+    # Load YAMLs
     yaml_files = []
     for root, _, files in os.walk(folder_path):
         for f in files:
@@ -35,15 +32,12 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
         except Exception as e:
             print(f"[!] Error loading YAML {path}: {e}")
 
-    print(f"[✓] Parsed {len(yamls)} YAML files")
+    print(f"[✓] Parsed {len(yamls)} YAMLs")
 
-    # Create output folder if needed
     os.makedirs(os.path.dirname(output_db), exist_ok=True)
-
     conn = sqlite3.connect(output_db)
     cur = conn.cursor()
 
-    # Build parcels table
     cur.execute("DROP TABLE IF EXISTS parcels")
     cur.execute("""
     CREATE TABLE parcels (
@@ -52,7 +46,7 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
         sha256 TEXT,
         grantee TEXT,
         amount TEXT,
-        date_signed TEXT,
+        date TEXT,
         present_2015 INTEGER,
         present_2018 INTEGER,
         present_2022 INTEGER,
@@ -70,48 +64,47 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
 
     inserted = 0
     for doc in yamls:
-        try:
-            cert = doc.get("certificate_id") or doc.get("document") or doc.get("_source_file")
-            sha = doc.get("sha256", "")
-            for tx in doc.get("transactions", []):
-                pid = tx.get("parcel_id", "")
-                if not pid or pid.lower().startswith("unknown"):
-                    continue
+        sha = doc.get("sha256", "")
+        cert = doc.get("certificate_id") or doc.get("cert_id") or doc.get("document") or doc.get("_source_file")
 
-                p15 = check_presence(pid, "2015")
-                p18 = check_presence(pid, "2018")
-                p22 = check_presence(pid, "2022")
-                p25 = check_presence(pid, "2025")
+        for tx in doc.get("transactions", []):
+            pid = tx.get("parcel_id")
+            if not pid or pid.lower().startswith("unknown"):
+                continue
 
-                # Inference: classify parcel status
-                if p18 and not p25:
-                    status = "Disappeared"
-                elif p15 and not p18:
-                    status = "Erased"
-                elif not any([p15, p18, p22, p25]):
-                    status = "Fabricated"
-                else:
-                    status = "Public"
+            p15 = check_presence(pid, "2015")
+            p18 = check_presence(pid, "2018")
+            p22 = check_presence(pid, "2022")
+            p25 = check_presence(pid, "2025")
 
-                row = (
-                    cert,
-                    pid,
-                    sha,
-                    tx.get("grantee", ""),
-                    tx.get("amount", ""),
-                    tx.get("date_signed", ""),
-                    int(p15), int(p18), int(p22), int(p25),
-                    status,
-                    tx.get("latitude", None),
-                    tx.get("longitude", None),
-                    doc.get("_source_file")
-                )
-                cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                inserted += 1
-        except Exception as e:
-            print(f"[!] Skipping document {doc.get('_source_file')} due to error: {e}")
+            if p18 and not p25:
+                status = "Disappeared"
+            elif p15 and not p18:
+                status = "Erased"
+            elif not any([p15, p18, p22, p25]):
+                status = "Fabricated"
+            else:
+                status = "Public"
+
+            date = tx.get("date_signed") or tx.get("date_closed")
+            row = (
+                cert,
+                pid,
+                sha,
+                tx.get("grantee", ""),
+                tx.get("amount", ""),
+                date,
+                int(p15), int(p18), int(p22), int(p25),
+                status,
+                tx.get("latitude"),
+                tx.get("longitude"),
+                doc.get("_source_file")
+            )
+
+            cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            inserted += 1
 
     conn.commit()
     conn.close()
-    print(f"[✓] Wrote {inserted} rows to {output_db}")
+    print(f"[✓] Wrote {inserted} records")
     return inserted, output_db
