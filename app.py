@@ -1,49 +1,44 @@
 import streamlit as st
-from login_manager import is_logged_in, current_role
+import os
+from login_manager import is_logged_in, current_user, current_role, logout
 
-st.set_page_config(page_title="ShivaSafe Public Viewer", layout="centered")
+st.set_page_config(page_title="Shiva PDF Analyzer", layout="wide")
 
-st.title("ShivaSafe Forensic Land Viewer")
-
+# === Top Banner ===
 st.markdown("""
-Welcome to **ShivaSafe** — the public transparency tool exposing concealed land transfers and offshore trust routing within Hawaii’s property system.
+# Shiva PDF Analyzer  
+### Fast Facts: Hawaii Land Title Suppression
 
----
-
-### What Is This?
-This platform reveals hidden financial flows, registry key transfers, and non-rendered certificate data extracted from digitally obfuscated documents. These records are not visible in traditional government systems and were recovered using advanced forensic decoding.
-
----
-
-### What You’ll Find:
-- **Registry keys**, escrow IDs, and suppressed offshore transfer records
-- Entities such as **Science of Identity Foundation** and **Shiva Escrow Holdings**
-- Concealed flows to offshore banks including **BDO (Philippines)** and **HSBC (Singapore)**
-
----
-
-### Technical Methodology:
-- CID font reversal, ligature recovery, XOR stream decoding
-- Mapping of unlisted TMK parcels to geocoordinates
-- Auto-tagging of grantee, parcel, and escrow metadata
-
----
-
-### Evidence Sections:
-- [🧾 Transaction Timeline](timeline)
-- [📍 Offshore Routing Map](map_viewer)
+- **100%** of Torrens Certificates on the Hawaii Bureau of Conveyances server contain encoded transaction data that does not match the visible, rendered text.  
+- Hidden records reveal private sales of government land, with funds routed to the **Science of Identity Foundation**, the **Gabbard Trust**, and individuals including **Tulsi Gabbard** and **Mike Gabbard**.  
+- Proceeds are consistently directed to **banks in the Philippines**.  
+- Since **2018**, nearly **1,500 land parcels** have quietly disappeared from public DLNR records — with **no audit trail** or notification to the public.  
+- During most of this period, **Mike Gabbard chaired the DLNR oversight committee**.  
+- This site was created to document these abnormalities and shed light on what may be a **$3 billion theft of Hawaii government land**.
 """)
 
-# Conditional display of Admin Panel link
-if is_logged_in() and current_role() == "editor":
-    st.markdown("- [🔐 Admin Panel](admin_home)")
+# === Sidebar Navigation ===
+st.sidebar.title("📁 Navigation")
+st.sidebar.markdown("- [Homepage](app)")
+st.sidebar.markdown("- [Map Viewer](map_viewer)")
+st.sidebar.markdown("- [Timeline](timeline)")
+st.sidebar.markdown("- [Suppression Map](suppression_heatmap)")
+st.sidebar.markdown("- [Suppression Timeline](suppression_timeline)")
 
-st.markdown("""
----
+# === Admin Tools Only for Logged-In Editors/Admins ===
+if is_logged_in() and current_role() in ["admin", "editor"]:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔐 Admin Tools")
+    st.sidebar.markdown("- [Admin Dashboard](admin_home)")
+    st.sidebar.markdown("- [Login Manager](login)")
+    st.sidebar.markdown("- [Upload to Drive](upload_to_drive)")
 
-**Disclaimer:** This site presents digitally suppressed content recovered from PDF document layers not visible via traditional rendering tools. All data has been recovered using forensic methods and presented for public analysis and legal validation.
-
----
-
-© 2025 ShivaSafe. No claim to ownership or authenticity is made beyond forensic extraction.
-""")
+# === User Login Status ===
+st.sidebar.markdown("---")
+if is_logged_in():
+    st.sidebar.success(f"Logged in as: **{current_user()}**")
+    if st.sidebar.button("Log Out"):
+        logout()
+        st.experimental_rerun()
+else:
+    st.sidebar.info("You are not logged in.")
