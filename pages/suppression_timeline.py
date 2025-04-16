@@ -1,35 +1,56 @@
+
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import base64
 
 st.set_page_config(page_title="Suppression Timeline", layout="wide")
-st.title("📉 TMK Suppression Timeline")
+st.title("📅 Parcel Suppression Timeline")
 
-st.markdown("""
-This chart shows the number of land parcels that disappeared from the public TMK registry between major dataset snapshots:
+CSV_PATH = "tmk_suppression_timeline.csv"
 
-- **2018–2022**: Moderate removals
-- **2022–2025**: Aggressive suppression surge
-""")
+@st.cache_data
+def load_timeline_data():
+    return pd.read_csv(CSV_PATH)
 
-try:
-    df = pd.read_csv("tmk_suppression_timeline.csv")
-except Exception as e:
-    st.error(f"Failed to load timeline CSV: {e}")
-    st.stop()
+@st.cache_data
+def convert_df(df):
+    return df.to_csv(index=False).encode("utf-8")
 
-# Plot bar chart
-fig = px.bar(
-    df,
-    x="year_range",
-    y="suppressed_tmk_count",
-    text="suppressed_tmk_count",
-    labels={"year_range": "Year Range", "suppressed_tmk_count": "TMKs Removed"},
-    title="Number of TMKs Removed From Registry",
-    color_discrete_sequence=["crimson"]
+def style_row(row):
+    color = "#fff"
+    if row["status"] == "Disappeared":
+        color = "#ffe6e6"  # light red
+    elif row["status"] == "Fabricated":
+        color = "#f2f2f2"  # gray
+    elif row["status"] == "Erased":
+        color = "#fff0cc"  # light orange
+    elif row["status"] == "Public":
+        color = "#e6ffe6"  # light green
+    return [f"background-color: {color}"] * len(row)
+
+df = load_timeline_data()
+
+# Convert bools to ✅/❌ if needed
+for col in ["found_2018", "found_2022", "found_2025"]:
+    df[col] = df[col].map({True: "✅", False: "❌", "Yes": "✅", "No": "❌"}).fillna("❌")
+
+# Filters
+st.sidebar.header("🔎 Filter Timeline")
+status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=df["status"].unique())
+df_filtered = df[df["status"].isin(status_filter)]
+
+# Show styled table
+st.dataframe(
+    df_filtered.style.apply(style_row, axis=1),
+    use_container_width=True,
+    height=700
 )
 
-fig.update_traces(textposition='outside')
-fig.update_layout(yaxis_title="Suppressed Parcels", xaxis_title="Year Range")
-
-st.plotly_chart(fig, use_container_width=True)
+# Download CSV
+csv_data = convert_df(df_filtered)
+st.download_button(
+    label="⬇️ Download Filtered Timeline CSV",
+    data=csv_data,
+    file_name="filtered_tmk_suppression_timeline.csv",
+    mime="text/csv"
+)
