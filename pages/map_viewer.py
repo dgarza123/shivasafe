@@ -1,137 +1,85 @@
+# pages/map_viewer.py
+
 import streamlit as st
 import sqlite3
-import yaml
-import os
+import pandas as pd
 import pydeck as pdk
-import pandas as pd  # ✅ ADD THIS
 
-st.set_page_config(page_title="Map Viewer", layout="wide")
-st.title("🗺️ TMK Suppression + Offshore Flow Map")
+st.set_page_config(page_title="Parcel Map Viewer", layout="wide")
+st.title("Parcel Transfer Map")
 
-# Constants
-DEFAULT_LAT, DEFAULT_LON = 21.3069, -157.8583
-EVIDENCE_DIR = "evidence"
+DB_PATH = "data/hawaii.db"
+if not os.path.exists(DB_PATH):
+    st.error("❌ Missing hawaii.db in /data")
+    st.stop()
 
-# DB connection
-@st.cache_data
-def load_suppression_data():
-    conn = sqlite3.connect("Hawaii.db")
-    df = pd.read_sql_query("SELECT * FROM tmk_suppression_status", conn)
-    conn.close()
-    return df
+conn = sqlite3.connect(DB_PATH)
+df = pd.read_sql_query("SELECT * FROM parcels WHERE status != 'Fabricated'", conn)
+conn.close()
 
-# YAML-based arcs
-def extract_transaction_arcs():
-    arcs = []
-    for fname in os.listdir(EVIDENCE_DIR):
-        if fname.endswith("_entities.yaml"):
-            with open(os.path.join(EVIDENCE_DIR, fname), "r", encoding="utf-8") as f:
-                try:
-                    data = yaml.safe_load(f)
-                    doc = data.get("document", fname.replace("_entities.yaml", ".pdf"))
-                    sha = data.get("sha256", "")
-                    for tx in data.get("transactions", []):
-                        if not isinstance(tx, dict):
-                            continue
-                        tmk = str(tx.get("parcel_id", "")).strip()
-                        coords = get_coords_by_tmk(tmk)
-                        if coords and "country" in tx:
-                            arcs.append({
-                                "from_lat": coords[0],
-                                "from_lon": coords[1],
-                                "to_lat": offshore_coords(tx["country"])[0],
-                                "to_lon": offshore_coords(tx["country"])[1],
-                                "label": f"{tx.get('amount', '')} to {tx.get('country', '')}",
-                                "tmk": tmk,
-                                "grantee": tx.get("grantee", ""),
-                                "cert_id": tx.get("cert_id", ""),
-                                "link": tx.get("link", ""),
-                                "document": doc
-                            })
-                except:
-                    continue
-    return arcs
+if df.empty:
+    st.warning("No parcels found in database.")
+    st.stop()
 
-# Get offshore coordinates by country (simple lookup)
-def offshore_coords(country):
-    lookup = {
-        "Philippines": (13.41, 122.56),
-        "Switzerland": (46.8, 8.2),
-        "Singapore": (1.35, 103.8)
-    }
-    return lookup.get(country, (13.0, 120.0))  # Default to PH-like location
+# Define map view centered on Hawaii
+view = pdk.ViewState(latitude=20.8, longitude=-157.5, zoom=6.3, pitch=30)
 
-# TMK to lat/lon
-@st.cache_data
-def get_coords_by_tmk(tmk):
-    conn = sqlite3.connect("Hawaii.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT Latitude, Longitude FROM tmk_lookup WHERE TMK=?", (tmk,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return (row[0], row[1])
-    return None
+# Define status color mapping
+status_colors = {
+    "Public": [0, 200, 0],       # Green
+    "Disappeared": [220, 0, 0],  # Red
+    "Erased": [255, 165, 0]      # Orange
+}
 
-# === UI Toggle ===
-view_mode = st.radio("Select Map Layer", ["Suppression Dots", "Offshore Arcs"], horizontal=True)
+# Define lines for offshore transfers
+lines = []
+for _, row in df.iterrows():
+    lat = row.get("latitude")
+    lon = row.get("longitude")
+    if lat is None or lon is None:
+        continue
 
-# === View 1: Suppression Dots ===
-if view_mode == "Suppression Dots":
-    df = load_suppression_data()
+    # Destination assumed Philippines or offshore
+    line_color = [0, 0, 255] if row["status"] == "Public" else [255, 0, 0]
+    lines.append({
+        "from": [lon, lat],
+        "to": [122.56, 11.6],  # Central Philippines fallback
+        "tooltip": f"{row['grantee']} — {row['amount']}",
+        "color": line_color
+    })
 
-    color_map = {
-        "Suppressed After Use": [255, 0, 0],
-        "Vanished After Use": [255, 165, 0],
-        "Still Public": [0, 200, 0],
-        "Fabricated?": [150, 150, 150]
-    }
-    df["color"] = df["classification"].apply(lambda x: color_map.get(x, [100, 100, 100]))
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=df,
-        get_position='[Longitude, Latitude]',
-        get_color="color",
-        get_radius=180,
-        pickable=True
-    )
-    st.pydeck_chart(pdk.Deck(
-        layers=[layer],
-        initial_view_state=pdk.ViewState(latitude=DEFAULT_LAT, longitude=DEFAULT_LON, zoom=10),
-        tooltip={
-            "html": "<b>TMK:</b> {TMK}<br>"
-                    "<b>Status:</b> {classification}<br>"
-                    "<b>Doc:</b> {document}<br>"
-                    "<b>SHA:</b> {sha256}"
-        }
-    ))
+# Prepare pydeck layers
+scatter = pdk.Layer(
+    "ScatterplotLayer",
+    data=df,
+    get_position="[longitude, latitude]",
+    get_color="[200, 200, 200]",
+    get_radius=250,
+    pickable=True,
+    tooltip=True,
+)
 
-# === View 2: Offshore Arcs ===
-elif view_mode == "Offshore Arcs":
-    arcs = extract_transaction_arcs()
-    if not arcs:
-        st.warning("No offshore transactions found in YAMLs.")
-    else:
-        arc_layer = pdk.Layer(
-            "ArcLayer",
-            data=arcs,
-            get_source_position=["from_lon", "from_lat"],
-            get_target_position=["to_lon", "to_lat"],
-            get_source_color=[200, 0, 0],
-            get_target_color=[0, 100, 255],
-            get_width=3,
-            pickable=True,
-            auto_highlight=True
-        )
-        st.pydeck_chart(pdk.Deck(
-            layers=[arc_layer],
-            initial_view_state=pdk.ViewState(latitude=DEFAULT_LAT, longitude=DEFAULT_LON, zoom=2),
-            tooltip={
-                "html": "<b>TMK:</b> {tmk}<br>"
-                        "<b>To:</b> {label}<br>"
-                        "<b>Grantee:</b> {grantee}<br>"
-                        "<b>Cert:</b> {cert_id}<br>"
-                        "<b>Doc:</b> {document}<br>"
-                        "<b>Link:</b> {link}"
-            }
-        ))
+arc_layer = pdk.Layer(
+    "ArcLayer",
+    data=lines,
+    get_source_position="from",
+    get_target_position="to",
+    get_width=2,
+    get_source_color="color",
+    get_target_color="color",
+    pickable=True,
+    auto_highlight=True,
+)
+
+tooltip = {
+    "html": "<b>{certificate_id}</b><br />{parcel_id}<br />{grantee}<br />{amount}<br />{status}",
+    "style": {"backgroundColor": "black", "color": "white"}
+}
+
+# Render the map
+st.pydeck_chart(pdk.Deck(
+    map_style="mapbox://styles/mapbox/light-v9",
+    initial_view_state=view,
+    layers=[scatter, arc_layer],
+    tooltip=tooltip
+))
