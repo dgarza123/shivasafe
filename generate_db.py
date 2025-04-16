@@ -8,7 +8,7 @@ YAML_DIR = "evidence/"
 # Ensure output folder exists
 os.makedirs("data", exist_ok=True)
 
-# Define database schema
+# Define schema
 def create_schema(conn):
     conn.execute("DROP TABLE IF EXISTS parcels")
     conn.execute("""
@@ -29,25 +29,25 @@ def create_schema(conn):
     """)
     conn.commit()
 
-# Normalize parcel fields and insert
+# Extract all .yaml data into DB
 def load_yaml_to_db(conn):
     inserted = 0
     for fname in os.listdir(YAML_DIR):
         if not fname.endswith(".yaml"):
             continue
-        path = os.path.join(YAML_DIR, fname)
-        with open(path, "r") as f:
+        fpath = os.path.join(YAML_DIR, fname)
+        with open(fpath, "r") as f:
             try:
                 ydata = yaml.safe_load(f)
-                cert_id = ydata.get("certificate_id") or ydata.get("document", "") or fname
+                cert_id = ydata.get("certificate_id") or ydata.get("document") or fname
                 sha = ydata.get("sha256", "")
                 for tx in ydata.get("transactions", []):
-                    parcel_id = tx.get("parcel_id", "")
-                    if not parcel_id or parcel_id.lower().startswith("unknown"):
+                    pid = tx.get("parcel_id", "")
+                    if not pid or pid.lower().startswith("unknown"):
                         continue
                     row = (
                         cert_id,
-                        parcel_id,
+                        pid,
                         sha,
                         tx.get("grantee", ""),
                         tx.get("amount", ""),
@@ -67,11 +67,11 @@ def load_yaml_to_db(conn):
                     """, row)
                     inserted += 1
             except Exception as e:
-                print(f"[!] Failed to process {fname}: {e}")
+                print(f"[!] Error in {fname}: {e}")
     conn.commit()
-    print(f"[✓] Inserted {inserted} transaction(s) into hawaii.db")
+    print(f"[✓] {inserted} transactions written to hawaii.db")
 
-# Main
+# Main entry
 if __name__ == "__main__":
     conn = sqlite3.connect(DB_PATH)
     create_schema(conn)
