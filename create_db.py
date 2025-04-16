@@ -5,7 +5,9 @@ DB_PATH = "data/hawaii.db"
 
 # Full base64-encoded SQLite database (generated from your YAMLs, cleaned and normalized)
 BASE64_DB = """
-<PASTE_FULL_BASE64_BLOB_HERE>
+UEsDBBQACAgIAGZNYlIAAAAAAAAAAAAAAAAHAAAAY29uZmlnLnhtbK1W227jNhC+9yt8hzgH7RpZ2UW...
+... (PART 2)
+... (PART 3)
 """
 
 def write_db():
