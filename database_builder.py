@@ -17,11 +17,10 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
         else:
             print(f"[!] Missing: {csv_path}")
 
-    # Load YAMLs
     yaml_files = []
     for root, _, files in os.walk(folder_path):
         for f in files:
-            if f.endswith(".yaml"):
+            if f.endswith(".yaml") or f.endswith(".yml"):
                 yaml_files.append(os.path.join(root, f))
 
     yamls = []
@@ -71,7 +70,7 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
             cert = doc.get("certificate_id") or doc.get("cert_id") or doc.get("document") or doc.get("_source_file")
 
             for tx in doc.get("transactions", []):
-                pid = tx.get("parcel_id", "")
+                pid = tx.get("parcel_id")
                 if not pid or pid.lower().startswith("unknown"):
                     continue
 
@@ -89,14 +88,13 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
                 else:
                     status = "Public"
 
-                date = tx.get("date_signed") or tx.get("date_closed")
                 row = (
                     cert,
                     pid,
                     sha,
                     tx.get("grantee", ""),
                     tx.get("amount", ""),
-                    date,
+                    tx.get("date_signed") or tx.get("date_closed") or "",
                     int(p15), int(p18), int(p22), int(p25),
                     status,
                     tx.get("latitude", None),
@@ -104,16 +102,13 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
                     doc.get("_source_file")
                 )
 
-                if all(row[:6]):  # Check for essential fields
-                    cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
-                    inserted += 1
-                else:
-                    print(f"[!] Skipped incomplete row: {row}")
+                cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                inserted += 1
 
         except Exception as e:
             print(f"[!] Error in document {doc.get('_source_file')}: {e}")
 
     conn.commit()
     conn.close()
-    print(f"[✓] Wrote {inserted} valid transactions to {output_db}")
+    print(f"[✓] Wrote {inserted} flexible transactions to {output_db}")
     return inserted, output_db
