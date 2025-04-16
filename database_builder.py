@@ -14,6 +14,8 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
             df = pd.read_csv(csv_path, dtype=str)
             parcel_snapshots[year] = df
             print(f"[✓] Loaded {csv_path} with {len(df)} rows")
+        else:
+            print(f"[!] Missing: {csv_path}")
 
     # Load YAMLs
     yaml_files = []
@@ -64,47 +66,54 @@ def build_database_from_folder(folder_path, output_db="data/hawaii.db"):
 
     inserted = 0
     for doc in yamls:
-        sha = doc.get("sha256", "")
-        cert = doc.get("certificate_id") or doc.get("cert_id") or doc.get("document") or doc.get("_source_file")
+        try:
+            sha = doc.get("sha256", "")
+            cert = doc.get("certificate_id") or doc.get("cert_id") or doc.get("document") or doc.get("_source_file")
 
-        for tx in doc.get("transactions", []):
-            pid = tx.get("parcel_id")
-            if not pid or pid.lower().startswith("unknown"):
-                continue
+            for tx in doc.get("transactions", []):
+                pid = tx.get("parcel_id", "")
+                if not pid or pid.lower().startswith("unknown"):
+                    continue
 
-            p15 = check_presence(pid, "2015")
-            p18 = check_presence(pid, "2018")
-            p22 = check_presence(pid, "2022")
-            p25 = check_presence(pid, "2025")
+                p15 = check_presence(pid, "2015")
+                p18 = check_presence(pid, "2018")
+                p22 = check_presence(pid, "2022")
+                p25 = check_presence(pid, "2025")
 
-            if p18 and not p25:
-                status = "Disappeared"
-            elif p15 and not p18:
-                status = "Erased"
-            elif not any([p15, p18, p22, p25]):
-                status = "Fabricated"
-            else:
-                status = "Public"
+                if p18 and not p25:
+                    status = "Disappeared"
+                elif p15 and not p18:
+                    status = "Erased"
+                elif not any([p15, p18, p22, p25]):
+                    status = "Fabricated"
+                else:
+                    status = "Public"
 
-            date = tx.get("date_signed") or tx.get("date_closed")
-            row = (
-                cert,
-                pid,
-                sha,
-                tx.get("grantee", ""),
-                tx.get("amount", ""),
-                date,
-                int(p15), int(p18), int(p22), int(p25),
-                status,
-                tx.get("latitude"),
-                tx.get("longitude"),
-                doc.get("_source_file")
-            )
+                date = tx.get("date_signed") or tx.get("date_closed")
+                row = (
+                    cert,
+                    pid,
+                    sha,
+                    tx.get("grantee", ""),
+                    tx.get("amount", ""),
+                    date,
+                    int(p15), int(p18), int(p22), int(p25),
+                    status,
+                    tx.get("latitude", None),
+                    tx.get("longitude", None),
+                    doc.get("_source_file")
+                )
 
-            cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            inserted += 1
+                if all(row[:6]):  # Check for essential fields
+                    cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                    inserted += 1
+                else:
+                    print(f"[!] Skipped incomplete row: {row}")
+
+        except Exception as e:
+            print(f"[!] Error in document {doc.get('_source_file')}: {e}")
 
     conn.commit()
     conn.close()
-    print(f"[✓] Wrote {inserted} records")
+    print(f"[✓] Wrote {inserted} valid transactions to {output_db}")
     return inserted, output_db
