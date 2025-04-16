@@ -1,3 +1,5 @@
+# pages/admin_db_uploader.py
+
 import os
 import streamlit as st
 import sqlite3
@@ -5,12 +7,6 @@ import pandas as pd
 
 st.set_page_config(page_title="Upload Database", layout="centered")
 st.title("📁 Upload a New hawaii.db")
-
-# Access control (simple)
-password = st.text_input("Admin Password", type="password")
-if password != st.secrets.get("admin_password", "changeme"):
-    st.warning("Enter admin password to continue")
-    st.stop()
 
 DB_DIR = "data"
 DB_PATH = os.path.join(DB_DIR, "hawaii.db")
@@ -39,7 +35,7 @@ if submitted:
             st.error("❌ 'parcels' table not found. This is not a valid hawaii.db file.")
         else:
             count = pd.read_sql_query("SELECT COUNT(*) as n FROM parcels", conn)["n"].iloc[0]
-            st.success(f"📦 parcels table found with {count} records.")
+            st.success(f"📦 'parcels' table found with {count} records.")
         conn.close()
     except Exception as e:
         st.error(f"❌ Failed to open database: {e}")
