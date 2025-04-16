@@ -1,9 +1,14 @@
+import streamlit as st
 import pandas as pd
 import os
+import yaml
 
-# === CONFIG ===
+st.set_page_config(page_title="📊 Rebuild TMK Suppression Timeline", layout="wide")
+st.title("📊 TMK Suppression Timeline Generator")
+
 data_dir = "data"
-out_path = os.path.join(data_dir, "tmk_suppression_timeline.csv")
+yaml_dir = "evidence"
+output_csv = os.path.join(data_dir, "tmk_suppression_timeline.csv")
 
 # === Helper: Normalize GIS TMK format ===
 def normalize_tmk(row):
@@ -24,23 +29,26 @@ def load_and_normalize(filename):
     df["tmk_normalized"] = df.apply(normalize_tmk, axis=1)
     return set(df["tmk_normalized"].dropna().str.strip())
 
-# === Load all years ===
-tmk_2018 = load_and_normalize("Hawaii2018.csv")
-tmk_2022 = load_and_normalize("Hawaii2022.csv")
-tmk_2025 = load_and_normalize("Hawaii2025.csv")
+st.markdown("🔄 Loading GIS data files...")
+try:
+    tmk_2018 = load_and_normalize("Hawaii2018.csv")
+    tmk_2022 = load_and_normalize("Hawaii2022.csv")
+    tmk_2025 = load_and_normalize("Hawaii2025.csv")
+    st.success("✅ GIS datasets loaded and normalized.")
+except Exception as e:
+    st.error(f"❌ Failed to load GIS datasets: {e}")
+    st.stop()
 
 # === Load all YAML TMKs ===
-yaml_dir = "evidence"
+st.markdown("📥 Scanning YAML files in `/evidence`...")
 tmk_to_source = {}
-
 for fname in os.listdir(yaml_dir):
     if not fname.endswith("_entities.yaml"):
         continue
     try:
-        import yaml
         with open(os.path.join(yaml_dir, fname), "r") as f:
             ydata = yaml.safe_load(f)
-        cert_id = os.path.splitext(fname)[0].replace("_entities", "")
+        cert_id = fname.replace("_entities.yaml", "")
         for tx in ydata.get("transactions", []):
             tmk = str(tx.get("parcel_id", "")).strip()
             if tmk:
@@ -48,10 +56,15 @@ for fname in os.listdir(yaml_dir):
                     "certificate": cert_id,
                     "yaml_file": fname
                 }
-    except:
-        continue
+    except Exception as e:
+        st.warning(f"⚠️ Could not read {fname}: {e}")
+
+if not tmk_to_source:
+    st.error("❌ No TMKs found in YAML files.")
+    st.stop()
 
 # === Analyze suppression status ===
+st.markdown("🔍 Analyzing suppression timeline...")
 rows = []
 for tmk, meta in tmk_to_source.items():
     found_2018 = tmk in tmk_2018
@@ -77,9 +90,10 @@ for tmk, meta in tmk_to_source.items():
         "status": status
     })
 
-# === Save to CSV ===
+# === Save and show result ===
 df_out = pd.DataFrame(rows)
-df_out.to_csv(out_path, index=False)
+df_out.to_csv(output_csv, index=False)
 
-print(f"✅ Suppression timeline saved to: {out_path}")
-print(f"Rows written: {len(df_out)}")
+st.success(f"✅ Suppression timeline saved to: `{output_csv}`")
+st.markdown(f"**Rows written:** `{len(df_out)}`")
+st.dataframe(df_out)
