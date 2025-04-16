@@ -16,17 +16,18 @@ def convert_df(df):
 
 def style_row(row):
     color = "#ffffff"
-    if row["status"] == "Disappeared":
-        color = "#ffe6e6"
-    elif row["status"] == "Fabricated":
-        color = "#f2f2f2"
-    elif row["status"] == "Erased":
-        color = "#fff0cc"
-    elif row["status"] == "Public":
-        color = "#e6ffe6"
+    if "status" in row:
+        if row["status"] == "Disappeared":
+            color = "#ffe6e6"
+        elif row["status"] == "Fabricated":
+            color = "#f2f2f2"
+        elif row["status"] == "Erased":
+            color = "#fff0cc"
+        elif row["status"] == "Public":
+            color = "#e6ffe6"
     return [f"background-color: {color}"] * len(row)
 
-# Load and normalize data
+# Load and normalize
 df = load_timeline_data()
 df.columns = df.columns.str.strip().str.lower()
 
@@ -34,7 +35,7 @@ df.columns = df.columns.str.strip().str.lower()
 st.sidebar.caption("Detected CSV columns:")
 st.sidebar.write(list(df.columns))
 
-# Normalize year visibility columns to ✅ / ❌, even if missing
+# Standardize found_* columns to ✅ / ❌
 for col in ["found_2018", "found_2022", "found_2025"]:
     if col in df.columns:
         df[col] = df[col].astype(str).str.strip().map({
@@ -43,22 +44,25 @@ for col in ["found_2018", "found_2022", "found_2025"]:
     else:
         df[col] = "❌"
 
-# Sidebar filter for suppression status
+# Sidebar filter for status
 if "status" in df.columns:
     status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=list(df["status"].unique()))
     df_filtered = df[df["status"].isin(status_filter)]
 else:
-    st.error("Missing 'status' column in the CSV.")
+    st.warning("No 'status' column found. Showing raw data.")
     df_filtered = df.copy()
 
-# Display styled table
-st.dataframe(
-    df_filtered.style.apply(style_row, axis=1),
-    use_container_width=True,
-    height=700
-)
+# Display the table
+if "status" in df_filtered.columns:
+    st.dataframe(
+        df_filtered.style.apply(style_row, axis=1),
+        use_container_width=True,
+        height=700
+    )
+else:
+    st.dataframe(df_filtered, use_container_width=True, height=700)
 
-# Download CSV export
+# CSV export
 csv_data = convert_df(df_filtered)
 st.download_button(
     label="⬇️ Download Filtered Timeline CSV",
