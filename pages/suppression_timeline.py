@@ -17,28 +17,35 @@ def convert_df(df):
 def style_row(row):
     color = "#ffffff"
     if row["status"] == "Disappeared":
-        color = "#ffe6e6"  # light red
+        color = "#ffe6e6"
     elif row["status"] == "Fabricated":
-        color = "#f2f2f2"  # light gray
+        color = "#f2f2f2"
     elif row["status"] == "Erased":
-        color = "#fff0cc"  # light orange
+        color = "#fff0cc"
     elif row["status"] == "Public":
-        color = "#e6ffe6"  # light green
+        color = "#e6ffe6"
     return [f"background-color: {color}"] * len(row)
 
 # Load and clean data
 df = load_timeline_data()
-df.columns = df.columns.str.strip()  # ✅ remove any leading/trailing whitespace
+df.columns = df.columns.str.strip().str.lower()
 
-# Convert bools or strings to ✅ / ❌
+# Show columns for debugging
+st.sidebar.caption("Loaded columns:")
+st.sidebar.write(list(df.columns))
+
+# Standardize boolean/year columns to ✅/❌
 for col in ["found_2018", "found_2022", "found_2025"]:
     if col in df.columns:
         df[col] = df[col].map({True: "✅", False: "❌", "Yes": "✅", "No": "❌"}).fillna("❌")
 
 # Sidebar filter
-st.sidebar.header("🔎 Filter Timeline")
-status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=df["status"].unique())
-df_filtered = df[df["status"].isin(status_filter)]
+if "status" in df.columns:
+    status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=list(df["status"].unique()))
+    df_filtered = df[df["status"].isin(status_filter)]
+else:
+    st.error("Missing 'status' column in CSV.")
+    df_filtered = df.copy()
 
 # Display styled table
 st.dataframe(
