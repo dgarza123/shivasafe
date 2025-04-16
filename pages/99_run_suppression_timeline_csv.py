@@ -1,83 +1,85 @@
-import streamlit as st
-import os
 import pandas as pd
-import yaml
+import os
 
-st.set_page_config(page_title="Generate Suppression Timeline", layout="wide")
-st.title("📊 Rebuild TMK Suppression Timeline")
+# === CONFIG ===
+data_dir = "data"
+out_path = os.path.join(data_dir, "tmk_suppression_timeline.csv")
 
-# === Load GIS files
-try:
-    df_2018 = pd.read_csv("data/Hawaii2018.csv")
-    df_2022 = pd.read_csv("data/Hawaii2022.csv")
-    df_2025 = pd.read_csv("data/Hawaii2025.csv")
-except Exception as e:
-    st.error(f"Failed to load GIS files: {e}")
-    st.stop()
+# === Helper: Normalize GIS TMK format ===
+def normalize_tmk(row):
+    try:
+        zone = str(int(row["zone"]))
+        section = str(int(row["section"]))
+        plat = str(int(row["plat"]))
+        parcel = str(int(row["parcel"]))
+        return f"{zone}-{section}-{plat}:{parcel}"
+    except:
+        return None
 
-tmks_2018 = set(df_2018["TMK"].astype(str).str.strip())
-tmks_2022 = set(df_2022["TMK"].astype(str).str.strip())
-tmks_2025 = set(df_2025["TMK"].astype(str).str.strip())
+# === Load and normalize each year ===
+def load_and_normalize(filename):
+    path = os.path.join(data_dir, filename)
+    df = pd.read_csv(path)
+    df.columns = df.columns.str.strip()
+    df["tmk_normalized"] = df.apply(normalize_tmk, axis=1)
+    return set(df["tmk_normalized"].dropna().str.strip())
 
-# === Parse YAML Evidence
-EVIDENCE_DIR = "evidence"
-rows = []
+# === Load all years ===
+tmk_2018 = load_and_normalize("Hawaii2018.csv")
+tmk_2022 = load_and_normalize("Hawaii2022.csv")
+tmk_2025 = load_and_normalize("Hawaii2025.csv")
 
-for fname in os.listdir(EVIDENCE_DIR):
+# === Load all YAML TMKs ===
+yaml_dir = "evidence"
+tmk_to_source = {}
+
+for fname in os.listdir(yaml_dir):
     if not fname.endswith("_entities.yaml"):
         continue
-
-    path = os.path.join(EVIDENCE_DIR, fname)
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except Exception as e:
-        st.warning(f"Could not load {fname}: {e}")
+        import yaml
+        with open(os.path.join(yaml_dir, fname), "r") as f:
+            ydata = yaml.safe_load(f)
+        cert_id = os.path.splitext(fname)[0].replace("_entities", "")
+        for tx in ydata.get("transactions", []):
+            tmk = str(tx.get("parcel_id", "")).strip()
+            if tmk:
+                tmk_to_source[tmk] = {
+                    "certificate": cert_id,
+                    "yaml_file": fname
+                }
+    except:
         continue
 
-    cert = fname.replace("_entities.yaml", "").replace("Certificate", "").strip()
-    sha = data.get("sha256", "")
-    pdf = data.get("document", "")
+# === Analyze suppression status ===
+rows = []
+for tmk, meta in tmk_to_source.items():
+    found_2018 = tmk in tmk_2018
+    found_2022 = tmk in tmk_2022
+    found_2025 = tmk in tmk_2025
 
-    for tx in data.get("transactions", []):
-        tmk = str(tx.get("parcel_id", "")).strip()
-        if not tmk:
-            continue
+    if found_2018 and found_2022 and not found_2025:
+        status = "Disappeared"
+    elif not found_2018 and found_2022 and not found_2025:
+        status = "Erased"
+    elif not found_2018 and not found_2022 and not found_2025:
+        status = "Fabricated"
+    else:
+        status = "Public"
 
-        found_2018 = tmk in tmks_2018
-        found_2022 = tmk in tmks_2022
-        found_2025 = tmk in tmks_2025
+    rows.append({
+        "TMK": tmk,
+        "certificate": meta["certificate"],
+        "yaml_file": meta["yaml_file"],
+        "found_2018": found_2018,
+        "found_2022": found_2022,
+        "found_2025": found_2025,
+        "status": status
+    })
 
-        if not found_2018 and not found_2022 and not found_2025:
-            status = "Fabricated"
-        elif found_2022 and not found_2018 and not found_2025:
-            status = "Erased"
-        elif (found_2018 or found_2022) and not found_2025:
-            status = "Disappeared"
-        elif found_2025:
-            status = "Public"
-        else:
-            status = "Unknown"
+# === Save to CSV ===
+df_out = pd.DataFrame(rows)
+df_out.to_csv(out_path, index=False)
 
-        rows.append({
-            "TMK": tmk,
-            "certificate": cert,
-            "yaml": fname,
-            "found_2018": "✅" if found_2018 else "❌",
-            "found_2022": "✅" if found_2022 else "❌",
-            "found_2025": "✅" if found_2025 else "❌",
-            "status": status,
-            "sha256": sha,
-            "document": pdf
-        })
-
-# === Save output
-output_path = "data/tmk_suppression_timeline.csv"
-try:
-    os.makedirs("data", exist_ok=True)
-    pd.DataFrame(rows).to_csv(output_path, index=False)
-    st.success(f"✅ Suppression timeline saved to: `{output_path}`")
-    st.write(f"Rows written: {len(rows)}")
-    st.dataframe(pd.DataFrame(rows))
-except Exception as e:
-    st.error(f"Failed to save suppression timeline CSV: {e}")
+print(f"✅ Suppression timeline saved to: {out_path}")
+print(f"Rows written: {len(df_out)}")
