@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import base64
 
 st.set_page_config(page_title="Suppression Timeline", layout="wide")
 st.title("📅 Parcel Suppression Timeline")
@@ -16,29 +15,32 @@ def convert_df(df):
     return df.to_csv(index=False).encode("utf-8")
 
 def style_row(row):
-    color = "#fff"
+    color = "#ffffff"
     if row["status"] == "Disappeared":
         color = "#ffe6e6"  # light red
     elif row["status"] == "Fabricated":
-        color = "#f2f2f2"  # gray
+        color = "#f2f2f2"  # light gray
     elif row["status"] == "Erased":
         color = "#fff0cc"  # light orange
     elif row["status"] == "Public":
         color = "#e6ffe6"  # light green
     return [f"background-color: {color}"] * len(row)
 
+# Load and clean data
 df = load_timeline_data()
+df.columns = df.columns.str.strip()  # ✅ remove any leading/trailing whitespace
 
-# Convert bools to ✅/❌ if needed
+# Convert bools or strings to ✅ / ❌
 for col in ["found_2018", "found_2022", "found_2025"]:
-    df[col] = df[col].map({True: "✅", False: "❌", "Yes": "✅", "No": "❌"}).fillna("❌")
+    if col in df.columns:
+        df[col] = df[col].map({True: "✅", False: "❌", "Yes": "✅", "No": "❌"}).fillna("❌")
 
-# Filters
+# Sidebar filter
 st.sidebar.header("🔎 Filter Timeline")
 status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=df["status"].unique())
 df_filtered = df[df["status"].isin(status_filter)]
 
-# Show styled table
+# Display styled table
 st.dataframe(
     df_filtered.style.apply(style_row, axis=1),
     use_container_width=True,
