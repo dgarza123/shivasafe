@@ -1,45 +1,36 @@
+# app.py
 import streamlit as st
-from create_db import write_db_if_missing
-write_db_if_missing()
+import os
+import zipfile
+from database_builder import build_database_from_folder
 
-st.set_page_config(
-    page_title="ShivaSafe: Parcel Trail Viewer",
-    layout="wide",
-)
+st.set_page_config("Hawaii DB Uploader", layout="centered")
 
-# --- HEADER ---
-st.title("ShivaSafe")
-st.markdown("""
-### Land Title Suppression Analysis
+st.title("🧾 Upload ZIP: YAMLs + Parcel CSVs")
+st.markdown("Upload a **single .zip** containing your `Hawaii*.csv` files and `.yaml` files.")
 
-View known land transactions extracted from notarized PDFs and cross-check parcel status across 2018, 2022, and 2025 records.
-""")
+uploaded_file = st.file_uploader("Upload .zip", type="zip")
 
-# --- FILE COUNT / STATUS ---
-st.markdown("---")
-st.subheader("Quick Stats")
+if uploaded_file:
+    os.makedirs("uploads", exist_ok=True)
 
-from pathlib import Path
-import sqlite3
+    zip_path = os.path.join("uploads", uploaded_file.name)
+    with open(zip_path, "wb") as f:
+        f.write(uploaded_file.read())
 
-db_path = Path("data/hawaii.db")
-if db_path.exists():
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    row = cursor.execute("SELECT COUNT(*) FROM parcels").fetchone()
-    st.success(f"📄 `{row[0]}` verified transactions loaded.")
-    conn.close()
-else:
-    st.warning("hawaii.db not found.")
+    extract_path = os.path.join("uploads", "extracted")
+    os.makedirs(extract_path, exist_ok=True)
 
-# --- NAVIGATION ---
-st.markdown("---")
-st.subheader("Navigation")
-st.markdown("""
-- 📍 [Parcel Trail](pages/parcel_trail.py)
-- 🗺️ [Suppression Map Viewer](pages/map_compare.py)
-- 🧾 More analysis coming soon...
-""")
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
 
-st.markdown("---")
-st.caption("Forensic analysis powered by Shiva PDF Analyzer")
+    st.success("✅ ZIP extracted. Building database...")
+
+    count, db_path = build_database_from_folder(extract_path)
+
+    st.success(f"✅ Database created at `{db_path}`")
+    st.info(f"📦 {count} transactions written")
+
+    with open(db_path, "rb") as f:
+        st.download_button("⬇️ Download hawaii.db", f, file_name="hawaii.db")
+
