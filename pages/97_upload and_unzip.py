@@ -39,7 +39,7 @@ def ingest_yaml_to_db():
                 tmk = str(tx.get("parcel_id", "")).strip()
                 if not tmk:
                     continue
-                c.execute("INSERT INTO transactions (tmk, certificate, yaml_file) VALUES (?, ?, ?)",
+                c.execute("INSERT OR IGNORE INTO transactions (tmk, certificate, yaml_file) VALUES (?, ?, ?)",
                           (tmk, cert, fname))
                 count += 1
         except Exception as e:
@@ -67,3 +67,4 @@ if uploaded_file:
     create_transactions_table()
     count = ingest_yaml_to_db()
     st.success(f"📥 Ingested {count} transactions into Hawaii.db")
+    st.rerun()
