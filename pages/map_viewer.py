@@ -3,6 +3,7 @@ import sqlite3
 import yaml
 import os
 import pydeck as pdk
+import pandas as pd  # ✅ ADD THIS
 
 st.set_page_config(page_title="Map Viewer", layout="wide")
 st.title("🗺️ TMK Suppression + Offshore Flow Map")
