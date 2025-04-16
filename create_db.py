@@ -3,9 +3,8 @@ import base64
 
 DB_PATH = "data/hawaii.db"
 
-# Base64-encoded hawaii.db (shortened preview — replace with full block)
 DB_B64 = """
-<REPLACE THIS BLOCK WITH FULL BASE64 DATA I WILL PASTE NEXT>
+<PASTE FULL BASE64 BLOCK FROM NEXT MESSAGE HERE>
 """.strip()
 
 def write_db_if_missing():
