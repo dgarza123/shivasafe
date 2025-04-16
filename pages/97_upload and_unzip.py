@@ -37,11 +37,13 @@ def ingest_yaml_to_db():
             cert = fname.replace("_entities.yaml", "")
             for tx in data.get("transactions", []):
                 tmk = str(tx.get("parcel_id", "")).strip()
-                if tmk:
-                    c.execute("INSERT INTO transactions (tmk, certificate, yaml_file) VALUES (?, ?, ?)",
-                              (tmk, cert, fname))
-                    count += 1
-        except:
+                if not tmk:
+                    continue
+                c.execute("INSERT INTO transactions (tmk, certificate, yaml_file) VALUES (?, ?, ?)",
+                          (tmk, cert, fname))
+                count += 1
+        except Exception as e:
+            st.warning(f"⚠️ Skipped {fname}: {e}")
             continue
     conn.commit()
     conn.close()
