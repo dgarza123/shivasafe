@@ -26,25 +26,29 @@ def style_row(row):
         color = "#e6ffe6"
     return [f"background-color: {color}"] * len(row)
 
-# Load and clean data
+# Load and normalize data
 df = load_timeline_data()
 df.columns = df.columns.str.strip().str.lower()
 
-# Show columns for debugging
-st.sidebar.caption("Loaded columns:")
+# Debug: show available columns
+st.sidebar.caption("Detected CSV columns:")
 st.sidebar.write(list(df.columns))
 
-# Standardize boolean/year columns to ✅/❌
+# Normalize year visibility columns to ✅ / ❌, even if missing
 for col in ["found_2018", "found_2022", "found_2025"]:
     if col in df.columns:
-        df[col] = df[col].map({True: "✅", False: "❌", "Yes": "✅", "No": "❌"}).fillna("❌")
+        df[col] = df[col].astype(str).str.strip().map({
+            "True": "✅", "False": "❌", "Yes": "✅", "No": "❌", "✅": "✅", "❌": "❌"
+        }).fillna("❌")
+    else:
+        df[col] = "❌"
 
-# Sidebar filter
+# Sidebar filter for suppression status
 if "status" in df.columns:
     status_filter = st.sidebar.multiselect("Suppression Status", df["status"].unique(), default=list(df["status"].unique()))
     df_filtered = df[df["status"].isin(status_filter)]
 else:
-    st.error("Missing 'status' column in CSV.")
+    st.error("Missing 'status' column in the CSV.")
     df_filtered = df.copy()
 
 # Display styled table
@@ -54,7 +58,7 @@ st.dataframe(
     height=700
 )
 
-# Download CSV
+# Download CSV export
 csv_data = convert_df(df_filtered)
 st.download_button(
     label="⬇️ Download Filtered Timeline CSV",
