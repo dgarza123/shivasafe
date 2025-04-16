@@ -32,7 +32,7 @@ def ingest_yaml_to_db():
         if not fname.endswith("_entities.yaml"):
             continue
         try:
-            with open(os.path.join(UPLOAD_DIR, fname), "r") as f:
+            with open(os.path.join(UPLOAD_DIR, fname), "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             cert = fname.replace("_entities.yaml", "")
             for tx in data.get("transactions", []):
@@ -67,4 +67,5 @@ if uploaded_file:
     create_transactions_table()
     count = ingest_yaml_to_db()
     st.success(f"📥 Ingested {count} transactions into Hawaii.db")
-    st.rerun()
+
+    st.info("⬅️ Reload the suppression timeline to reflect new entries.")
