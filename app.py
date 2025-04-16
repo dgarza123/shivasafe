@@ -1,6 +1,10 @@
 import streamlit as st
 import os
+from create_db import write_db  # <- NEW LINE to trigger hawaii.db setup
 from login_manager import is_logged_in, current_user, current_role, logout
+
+# === Auto-create DB on startup ===
+write_db()
 
 st.set_page_config(page_title="Shiva PDF Analyzer", layout="wide")
 
