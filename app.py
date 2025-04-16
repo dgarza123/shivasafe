@@ -1,48 +1,47 @@
 import streamlit as st
-import os
-from create_db import write_db  # <- NEW LINE to trigger hawaii.db setup
-from login_manager import is_logged_in, current_user, current_role, logout
+from create_db import write_db_if_missing
 
-# === Auto-create DB on startup ===
-write_db()
+# Create the DB if needed
+write_db_if_missing()
 
-st.set_page_config(page_title="Shiva PDF Analyzer", layout="wide")
+st.set_page_config(
+    page_title="ShivaSafe: Parcel Trail Viewer",
+    layout="wide",
+)
 
-# === Top Banner ===
+# --- HEADER ---
+st.title("ShivaSafe")
 st.markdown("""
-# Shiva PDF Analyzer  
-### Fast Facts: Hawaii Land Title Suppression
+### Land Title Suppression Analysis
 
-- **100%** of Torrens Certificates on the Hawaii Bureau of Conveyances server contain encoded transaction data that does not match the visible, rendered text.  
-- Hidden records reveal private sales of government land, with funds routed to the **Science of Identity Foundation**, the **Gabbard Trust**, and individuals including **Tulsi Gabbard** and **Mike Gabbard**.  
-- Proceeds are consistently directed to **banks in the Philippines**.  
-- Since **2018**, nearly **1,500 land parcels** have quietly disappeared from public DLNR records — with **no audit trail** or notification to the public.  
-- During most of this period, **Mike Gabbard chaired the DLNR oversight committee**.  
-- This site was created to document these abnormalities and shed light on what may be a **$3 billion theft of Hawaii government land**.
+View known land transactions extracted from notarized PDFs and cross-check parcel status across 2018, 2022, and 2025 records.
 """)
 
-# === Sidebar Navigation ===
-st.sidebar.title("📁 Navigation")
-st.sidebar.markdown("- [Homepage](app)")
-st.sidebar.markdown("- [Map Viewer](map_viewer)")
-st.sidebar.markdown("- [Timeline](timeline)")
-st.sidebar.markdown("- [Suppression Map](suppression_heatmap)")
-st.sidebar.markdown("- [Suppression Timeline](suppression_timeline)")
+# --- FILE COUNT / STATUS ---
+st.markdown("---")
+st.subheader("Quick Stats")
 
-# === Admin Tools Only for Logged-In Editors/Admins ===
-if is_logged_in() and current_role() in ["admin", "editor"]:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🔐 Admin Tools")
-    st.sidebar.markdown("- [Admin Dashboard](admin_home)")
-    st.sidebar.markdown("- [Login Manager](login)")
-    st.sidebar.markdown("- [Upload to Drive](upload_to_drive)")
+from pathlib import Path
+import sqlite3
 
-# === User Login Status ===
-st.sidebar.markdown("---")
-if is_logged_in():
-    st.sidebar.success(f"Logged in as: **{current_user()}**")
-    if st.sidebar.button("Log Out"):
-        logout()
-        st.experimental_rerun()
+db_path = Path("data/hawaii.db")
+if db_path.exists():
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT COUNT(*) FROM parcels").fetchone()
+    st.success(f"📄 `{row[0]}` verified transactions loaded.")
+    conn.close()
 else:
-    st.sidebar.info("You are not logged in.")
+    st.warning("hawaii.db not found.")
+
+# --- NAVIGATION ---
+st.markdown("---")
+st.subheader("Navigation")
+st.markdown("""
+- 📍 [Parcel Trail](pages/parcel_trail.py)
+- 🗺️ [Suppression Map Viewer](pages/map_compare.py)
+- 🧾 More analysis coming soon...
+""")
+
+st.markdown("---")
+st.caption("Forensic analysis powered by Shiva PDF Analyzer")
