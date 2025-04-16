@@ -1,23 +1,25 @@
-import sqlite3
 import pandas as pd
+import sqlite3
+import os
 
-# Load the CSV file
-df = pd.read_csv("tmk_suppression_timeline.csv")
+# === Load CSV from scripts folder ===
+csv_path = os.path.join("scripts", "tmk_suppression_timeline.csv")
+df = pd.read_csv(csv_path)
 
-# Normalize values
+# === Normalize visibility columns ===
 for col in ["visible_2018", "visible_2022", "visible_2025"]:
-    df[col] = df[col].map({True: 1, "True": 1, "✅": 1, False: 0, "False": 0, "❌": 0}).fillna(0).astype(int)
+    df[col] = df[col].map({"✅": 1, "❌": 0, True: 1, False: 0}).fillna(0).astype(int)
 
-# Create SQLite database
+# === Create or update SQLite database ===
 conn = sqlite3.connect("Hawaii.db")
 cursor = conn.cursor()
 
-# Drop and create table
 cursor.execute("DROP TABLE IF EXISTS tmk_suppression_timeline")
 cursor.execute("""
 CREATE TABLE tmk_suppression_timeline (
     TMK TEXT PRIMARY KEY,
-    Certificate TEXT,
+    certificate TEXT,
+    yaml_file TEXT,
     visible_2018 INTEGER,
     visible_2022 INTEGER,
     visible_2025 INTEGER,
@@ -25,13 +27,14 @@ CREATE TABLE tmk_suppression_timeline (
 )
 """)
 
-# Insert rows
+# === Insert rows ===
 for _, row in df.iterrows():
     cursor.execute("""
-        INSERT INTO tmk_suppression_timeline VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO tmk_suppression_timeline VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         row["TMK"],
-        row["Certificate"],
+        row["certificate"],
+        row["yaml_file"],
         row["visible_2018"],
         row["visible_2022"],
         row["visible_2025"],
@@ -41,4 +44,4 @@ for _, row in df.iterrows():
 conn.commit()
 conn.close()
 
-print("✅ Suppression timeline ingested into Hawaii.db")
+print("✅ Suppression timeline successfully loaded into Hawaii.db")
