@@ -1,5 +1,6 @@
 # pages/map_viewer.py
 
+import os
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -31,7 +32,7 @@ status_colors = {
     "Erased": [255, 165, 0]      # Orange
 }
 
-# Define lines for offshore transfers
+# Offshore arcs
 lines = []
 for _, row in df.iterrows():
     lat = row.get("latitude")
@@ -39,24 +40,22 @@ for _, row in df.iterrows():
     if lat is None or lon is None:
         continue
 
-    # Destination assumed Philippines or offshore
     line_color = [0, 0, 255] if row["status"] == "Public" else [255, 0, 0]
     lines.append({
         "from": [lon, lat],
-        "to": [122.56, 11.6],  # Central Philippines fallback
+        "to": [122.56, 11.6],  # Philippines default
         "tooltip": f"{row['grantee']} — {row['amount']}",
         "color": line_color
     })
 
-# Prepare pydeck layers
+# Pydeck layers
 scatter = pdk.Layer(
     "ScatterplotLayer",
     data=df,
     get_position="[longitude, latitude]",
-    get_color="[200, 200, 200]",
+    get_fill_color="[200, 200, 200]",
     get_radius=250,
     pickable=True,
-    tooltip=True,
 )
 
 arc_layer = pdk.Layer(
@@ -76,7 +75,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Render the map
+# Show the map
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/light-v9",
     initial_view_state=view,
