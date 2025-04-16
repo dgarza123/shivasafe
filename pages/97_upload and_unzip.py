@@ -1,31 +1,67 @@
 import streamlit as st
-import os
 import zipfile
+import os
+import yaml
+import sqlite3
 
-EVIDENCE_DIR = "evidence"
-os.makedirs(EVIDENCE_DIR, exist_ok=True)
+st.set_page_config(page_title="Upload YAML Bundle", layout="centered")
+st.title("📦 Upload & Ingest YAML Evidence")
 
-st.set_page_config(page_title="Upload & Unzip YAML Bundle")
-st.title("📦 Upload Zipped YAMLs to /evidence")
+UPLOAD_DIR = "evidence"
+DB_PATH = "Hawaii.db"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-uploaded_file = st.file_uploader("Upload a .zip file containing YAMLs", type="zip")
+def create_transactions_table():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            tmk TEXT,
+            certificate TEXT,
+            yaml_file TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def ingest_yaml_to_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    count = 0
+    for fname in os.listdir(UPLOAD_DIR):
+        if not fname.endswith("_entities.yaml"):
+            continue
+        try:
+            with open(os.path.join(UPLOAD_DIR, fname), "r") as f:
+                data = yaml.safe_load(f)
+            cert = fname.replace("_entities.yaml", "")
+            for tx in data.get("transactions", []):
+                tmk = str(tx.get("parcel_id", "")).strip()
+                if tmk:
+                    c.execute("INSERT INTO transactions (tmk, certificate, yaml_file) VALUES (?, ?, ?)",
+                              (tmk, cert, fname))
+                    count += 1
+        except:
+            continue
+    conn.commit()
+    conn.close()
+    return count
+
+uploaded_file = st.file_uploader("Upload a ZIP file containing *_entities.yaml files", type="zip")
 
 if uploaded_file:
-    zip_path = os.path.join("temp_upload.zip")
+    zip_path = os.path.join("temp.zip")
     with open(zip_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(EVIDENCE_DIR)
-        st.success(f"✅ Extracted files to /{EVIDENCE_DIR}/")
-    except Exception as e:
-        st.error(f"❌ Failed to unzip: {e}")
-    finally:
-        os.remove(zip_path)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(UPLOAD_DIR)
+        extracted = zip_ref.namelist()
 
-    # Show uploaded files
-    st.markdown("### Extracted Files:")
-    for fname in os.listdir(EVIDENCE_DIR):
-        if fname.endswith(".yaml"):
-            st.markdown(f"- `{fname}`")
+    os.remove(zip_path)
+    st.success(f"✅ Extracted {len(extracted)} files to /evidence")
+    st.write(extracted)
+
+    create_transactions_table()
+    count = ingest_yaml_to_db()
+    st.success(f"📥 Ingested {count} transactions into Hawaii.db")
