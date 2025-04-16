@@ -1,69 +1,63 @@
 import streamlit as st
-import pydeck as pdk
 import pandas as pd
+import pydeck as pdk
 
 st.set_page_config(page_title="Suppression Heatmap", layout="wide")
-st.title("🔥 TMK Suppression Heatmap")
+st.title("🧭 TMK Suppression Heatmap")
 
 st.markdown("""
-This map visualizes land parcels that were removed from public TMK datasets between 2018 and 2025.
+This map shows parcels that disappeared from public land records between 2018 and 2025.
+Dot colors represent different types of suppression:
 
-- **Red** = Suppressed After Use  
-- **Orange** = Inserted Then Vanished  
-- **Purple** = Fabricated  
-- **Blue** = Still Public  
-
-Data is loaded from `Hawaii_tmk_suppression_status.csv`
+- 🔴 **Suppressed After Use**
+- 🟡 **Vanished After Use**
+- 🟢 **Still Public**
+- ⚫️ **Fabricated / Never Listed**
 """)
 
-# === Load data from file
+# Load suppression data
 try:
     df = pd.read_csv("Hawaii_tmk_suppression_status.csv")
-    st.success(f"Loaded {len(df)} suppressed TMK records.")
 except Exception as e:
-    st.error(f"Error loading suppression file: {e}")
+    st.error(f"Failed to load parcel coordinates: {e}")
     st.stop()
 
-# === Color logic
-def classify_color(status):
-    if status == "Suppressed After Use":
-        return [255, 0, 0]
-    elif status == "Inserted Then Vanished":
-        return [255, 165, 0]
-    elif status == "Fabricated":
-        return [128, 0, 128]
+# Color logic by classification
+def classify_color(row):
+    if "Suppressed" in row["classification"]:
+        return [255, 0, 0]       # Red
+    elif "Vanished" in row["classification"]:
+        return [255, 200, 0]     # Yellow
+    elif "Still Public" in row["classification"]:
+        return [0, 255, 0]       # Green
+    elif "Fabricated" in row["classification"]:
+        return [50, 50, 50]      # Black
     else:
-        return [0, 128, 255]  # Still Public
+        return [120, 120, 120]   # Gray fallback
 
-df["color"] = df["classification"].apply(classify_color)
+df["color"] = df.apply(classify_color, axis=1)
 
-# === Preview the data
-with st.expander("📄 Show TMK Table"):
-    st.dataframe(df)
-
-# === Build the map
+# Deck layer
 layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
-    get_position="[Longitude, Latitude]",
+    get_position='[Longitude, Latitude]',
     get_fill_color="color",
-    get_radius=300,          # Larger for visibility
-    get_line_color=[0, 0, 0],
-    line_width_min_pixels=1,
-    pickable=True,
-    opacity=0.8
+    get_radius=1000,  # Larger dot size
+    pickable=True
 )
 
 view_state = pdk.ViewState(
     latitude=21.3,
     longitude=-157.85,
-    zoom=7.2,
+    zoom=9,
     pitch=0
 )
 
-# === Show map
 st.pydeck_chart(pdk.Deck(
     layers=[layer],
     initial_view_state=view_state,
-    tooltip={"text": "TMK: {TMK}\nStatus: {classification}"}
+    tooltip={
+        "html": "<b>TMK:</b> {TMK}<br><b>Status:</b> {classification}<br><b>File:</b> {document}"
+    }
 ))
