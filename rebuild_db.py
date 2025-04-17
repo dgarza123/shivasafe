@@ -1,78 +1,60 @@
-# rebuild_db.py
-
 import os
 import sqlite3
 import yaml
 
-def build_db(yaml_folder: str, db_path: str = "data/hawaii.db"):
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+def build_db(yaml_dir: str, output_path: str = "data/hawaii.db"):
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # Create table
-    cursor.execute("""
+    conn = sqlite3.connect(output_path)
+    c = conn.cursor()
+
+    # Create parcels table with consistent schema
+    c.execute("""
         CREATE TABLE IF NOT EXISTS parcels (
             certificate_id TEXT,
-            document TEXT,
-            sha256 TEXT,
             parcel_id TEXT,
             parcel_valid BOOLEAN,
             grantor TEXT,
             grantee TEXT,
             amount TEXT,
-            escrow_id TEXT,
             registry_key TEXT,
+            escrow_id TEXT,
             transfer_bank TEXT,
             country TEXT,
-            link TEXT,
             date_signed TEXT,
-            status TEXT DEFAULT 'Public'
+            link TEXT,
+            status TEXT
         )
     """)
 
-    inserted = 0
-
-    for filename in os.listdir(yaml_folder):
-        if not filename.endswith(".yaml"):
+    count = 0
+    for fname in os.listdir(yaml_dir):
+        if not fname.endswith(".yaml"):
             continue
-
-        path = os.path.join(yaml_folder, filename)
+        path = os.path.join(yaml_dir, fname)
         with open(path, "r") as f:
-            try:
-                y = yaml.safe_load(f)
-                sha = y.get("sha256", "")
-                doc = y.get("document", "")
-                cert_id = y.get("certificate_id", os.path.splitext(filename)[0])
-                transactions = y.get("transactions", [])
+            data = yaml.safe_load(f)
+            cert_id = os.path.splitext(fname)[0]
 
-                for tx in transactions:
-                    cursor.execute("""
-                        INSERT INTO parcels (
-                            certificate_id, document, sha256,
-                            parcel_id, parcel_valid, grantor, grantee,
-                            amount, escrow_id, registry_key,
-                            transfer_bank, country, link, date_signed, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        cert_id, doc, sha,
-                        tx.get("parcel_id"),
-                        bool(tx.get("parcel_valid", True)),
-                        tx.get("grantor"),
-                        tx.get("grantee"),
-                        tx.get("amount"),
-                        tx.get("escrow_id"),
-                        tx.get("registry_key"),
-                        tx.get("transfer_bank"),
-                        tx.get("country"),
-                        tx.get("link"),
-                        tx.get("date_signed"),
-                        tx.get("status", "Public")
-                    ))
-                    inserted += 1
-
-            except Exception as e:
-                print(f"⚠️ Skipping {filename}: {e}")
+            for tx in data.get("transactions", []):
+                row = (
+                    cert_id,
+                    tx.get("parcel_id"),
+                    tx.get("parcel_valid", False),
+                    tx.get("grantor"),
+                    tx.get("grantee"),
+                    tx.get("amount"),
+                    tx.get("registry_key"),
+                    tx.get("escrow_id"),
+                    tx.get("transfer_bank"),
+                    tx.get("country"),
+                    tx.get("date_signed"),
+                    tx.get("link"),
+                    "Disappeared" if not tx.get("parcel_valid", False) else "Public"
+                )
+                c.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+                count += 1
 
     conn.commit()
     conn.close()
-    return inserted, db_path
+    return count
