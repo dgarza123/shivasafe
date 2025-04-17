@@ -1,78 +1,107 @@
 # pages/map_viewer.py
 
 import os
-import streamlit as st
 import sqlite3
 import pandas as pd
+import streamlit as st
 import pydeck as pdk
+import chardet
 
 st.set_page_config(page_title="Parcel Map Viewer", layout="wide")
 st.title("Parcel Transfer Map")
 
-# Paths
+# --- Load Database ---
 DB_PATH = "data/hawaii.db"
-CSV_PATH = "Hawaii.csv"
-
-# 🔍 Check for required files
 if not os.path.exists(DB_PATH):
     st.error("❌ Missing hawaii.db in /data")
     st.stop()
 
-if not os.path.exists(CSV_PATH):
-    st.error("❌ Missing Hawaii.csv in root directory")
+try:
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM parcels WHERE status != 'Fabricated'", conn)
+    conn.close()
+except Exception as e:
+    st.error(f"❌ Failed to load database: {e}")
     st.stop()
 
-# 📥 Load database and coordinates
-conn = sqlite3.connect(DB_PATH)
-df = pd.read_sql_query("SELECT * FROM parcels WHERE status != 'Fabricated'", conn)
-conn.close()
+if df.empty:
+    st.warning("No parcels found in database.")
+    st.stop()
 
-coord_df = pd.read_csv(CSV_PATH)
+# --- Load Hawaii.csv Safely ---
+if not os.path.exists("Hawaii.csv"):
+    st.error("❌ Missing Hawaii.csv in project root.")
+    st.stop()
+
+try:
+    with open("Hawaii.csv", "rb") as f:
+        raw = f.read()
+        encoding = chardet.detect(raw)["encoding"]
+    coord_df = pd.read_csv("Hawaii.csv", encoding=encoding, on_bad_lines="skip")
+    coord_df["parcel_id"] = coord_df["parcel_id"].astype(str).str.strip()
+    coord_df["latitude"] = pd.to_numeric(coord_df["latitude"], errors="coerce")
+    coord_df["longitude"] = pd.to_numeric(coord_df["longitude"], errors="coerce")
+    coord_df = coord_df.dropna(subset=["latitude", "longitude"])
+except Exception as e:
+    st.error(f"❌ Failed to load Hawaii.csv: {e}")
+    st.stop()
+
+# --- Merge Coordinates ---
+df["parcel_id"] = df["parcel_id"].astype(str).str.strip()
 merged = pd.merge(df, coord_df, on="parcel_id", how="left")
 
-if merged.empty:
-    st.warning("No valid parcels to display.")
+if merged["latitude"].isnull().all():
+    st.warning("No valid GPS coordinates matched parcel IDs.")
     st.stop()
 
-# 🌍 Define view
+# --- Define Map View ---
 view = pdk.ViewState(latitude=20.8, longitude=-157.5, zoom=6.3, pitch=30)
 
-# 🎯 Status colors
+# --- Define Colors ---
 status_colors = {
     "Public": [0, 200, 0],
     "Disappeared": [220, 0, 0],
-    "Erased": [255, 165, 0],
+    "Erased": [255, 165, 0]
 }
 
-# ➰ Create lines for transactions
-lines = []
+# --- Draw Parcels + Arcs ---
+points = []
+arcs = []
 for _, row in merged.iterrows():
-    lat = row.get("latitude")
-    lon = row.get("longitude")
+    lat, lon = row.get("latitude"), row.get("longitude")
     if pd.isna(lat) or pd.isna(lon):
         continue
-
-    color = [0, 0, 255] if row["status"] == "Public" else [255, 0, 0]
-    lines.append({
-        "from": [lon, lat],
-        "to": [122.56, 11.6],  # Philippines
-        "tooltip": f"{row['grantee']} — {row['amount']}",
-        "color": color
+    points.append({
+        "coordinates": [lon, lat],
+        "color": status_colors.get(row["status"], [150, 150, 150]),
+        "tooltip": f"{row['certificate_id']}<br>{row['grantee']}<br>{row['amount']}"
     })
+    if row.get("country", "").lower() == "philippines":
+        arcs.append({
+            "from": [lon, lat],
+            "to": [122.56, 11.6],
+            "color": [255, 0, 0]
+        })
+    elif row.get("country"):
+        arcs.append({
+            "from": [lon, lat],
+            "to": [0, 0],  # fallback
+            "color": [0, 0, 255]
+        })
 
-# 🔵 Map layers
+# --- Pydeck Layers ---
 scatter = pdk.Layer(
     "ScatterplotLayer",
-    data=merged,
-    get_position="[longitude, latitude]",
-    get_fill_color="[200, 200, 200]",
+    data=points,
+    get_position="coordinates",
+    get_fill_color="color",
     get_radius=250,
     pickable=True,
 )
 
-arc_layer = pdk.Layer(
+arcs_layer = pdk.Layer(
     "ArcLayer",
-    data=lines,
+    data=arcs,
     get_source_position="from",
     get_target_position="to",
     get_width=2,
@@ -83,14 +112,14 @@ arc_layer = pdk.Layer(
 )
 
 tooltip = {
-    "html": "<b>{certificate_id}</b><br />{parcel_id}<br />{grantee}<br />{amount}<br />{status}",
+    "html": "<b>{tooltip}</b>",
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# 📍 Show map
+# --- Show Map ---
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/light-v9",
     initial_view_state=view,
-    layers=[scatter, arc_layer],
+    layers=[scatter, arcs_layer],
     tooltip=tooltip
 ))
