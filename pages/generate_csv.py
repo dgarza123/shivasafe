@@ -9,7 +9,7 @@ st.title("🧮 Generate `Hawaii.csv` from hawaii.db + TMK files")
 st.markdown("""
 This tool will:
 - Load all TMKs from `hawaii.db`
-- Merge coordinates from all available `.csv` files
+- Merge coordinates from available `.csv` files
 - Compute suppression status (2015–2025)
 - Export to `Hawaii.csv` in the project root
 """)
@@ -23,12 +23,17 @@ if st.button("⚙️ Run generate_hawaii_csv.py"):
         st.success("✅ Hawaii.csv generated successfully.")
         st.code(result.stdout)
     except subprocess.CalledProcessError as e:
-        st.error("❌ Script failed.")
+        st.error("❌ Script failed to run.")
         st.code(e.stderr)
 
-# Preview and download if exists
-if os.path.exists("Hawaii.csv"):
-    df = pd.read_csv("Hawaii.csv")
-    st.markdown(f"### 🧾 Preview of Hawaii.csv ({len(df)} parcels)")
-    st.dataframe(df.head(100))
-    st.download_button("⬇️ Download Hawaii.csv", df.to_csv(index=False), "Hawaii.csv", "text/csv")
+# Load and preview Hawaii.csv safely
+if os.path.exists("Hawaii.csv") and os.path.getsize("Hawaii.csv") > 0:
+    try:
+        df = pd.read_csv("Hawaii.csv")
+        st.markdown(f"### 🧾 Preview of Hawaii.csv ({len(df)} parcels)")
+        st.dataframe(df.head(100))
+        st.download_button("⬇️ Download Hawaii.csv", df.to_csv(index=False), "Hawaii.csv", "text/csv")
+    except Exception as e:
+        st.error(f"❌ Failed to load Hawaii.csv: {e}")
+else:
+    st.warning("⚠️ Hawaii.csv not found or is empty.")
