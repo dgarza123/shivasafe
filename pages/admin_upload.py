@@ -1,71 +1,114 @@
 import os
 import streamlit as st
-import zipfile
-import importlib.util
+import yaml
 import pandas as pd
-import sqlite3
+import importlib.util
+import shutil
 
-st.set_page_config(page_title="Admin: Upload & Rebuild", layout="centered")
-st.title("🛠️ Upload YAML ZIP and Rebuild hawaii.db")
+EVIDENCE_DIR = "evidence"
+DATA_PATH = "data/hawaii.db"
 
-uploaded_file = st.file_uploader("📦 Upload a ZIP containing your YAML files (folder nesting is OK)", type="zip")
+st.set_page_config(page_title="Admin: Upload YAMLs + Rebuild", layout="centered")
+st.title("📤 Upload YAML Evidence Files (No ZIP Required)")
 
-if uploaded_file:
-    # Save ZIP
-    os.makedirs("upload", exist_ok=True)
-    zip_path = os.path.join("upload", "yamls.zip")
-    with open(zip_path, "wb") as f:
-        f.write(uploaded_file.read())
-    st.success("✅ ZIP uploaded")
-
-    # Clean up previous evidence folder
-    extract_to = "evidence"
-    if os.path.exists(extract_to):
-        for root, dirs, files in os.walk(extract_to):
+# Cleanup toggle
+if st.button("🧹 Clear all YAMLs in /evidence"):
+    if os.path.exists(EVIDENCE_DIR):
+        for root, _, files in os.walk(EVIDENCE_DIR):
             for file in files:
                 if file.lower().endswith(".yaml"):
                     os.remove(os.path.join(root, file))
+    st.success("✅ Cleared old YAMLs from /evidence")
+
+# File uploader (multiple YAMLs)
+uploaded_files = st.file_uploader("📄 Upload .yaml files directly (up to 100)", type="yaml", accept_multiple_files=True)
+
+if uploaded_files:
+    os.makedirs(EVIDENCE_DIR, exist_ok=True)
+    saved_files = []
+
+    for file in uploaded_files:
+        file_path = os.path.join(EVIDENCE_DIR, file.name)
+        with open(file_path, "wb") as out:
+            out.write(file.read())
+        saved_files.append(file_path)
+
+    st.success(f"✅ Uploaded {len(saved_files)} YAML file(s) to /evidence")
+
+    # Begin validation
+    st.subheader("🔍 Validation Summary")
+    results = []
+
+    required_top_fields = ["certificate_number", "document", "transactions"]
+    required_tx_fields = ["grantor", "grantee", "parcel_id"]
+
+    for path in saved_files:
+        with open(path, "r", encoding="utf-8") as f:
+            try:
+                data = yaml.safe_load(f)
+            except Exception as e:
+                results.append({
+                    "file": os.path.relpath(path),
+                    "status": "❌ INVALID YAML",
+                    "problem": f"YAML parse error: {str(e)}"
+                })
+                continue
+
+        for key in required_top_fields:
+            if key not in data:
+                results.append({
+                    "file": os.path.relpath(path),
+                    "status": "⚠️ MISSING FIELD",
+                    "problem": f"Top-level key missing: {key}"
+                })
+
+        tx_list = data.get("transactions", [])
+        if not isinstance(tx_list, list) or len(tx_list) == 0:
+            results.append({
+                "file": os.path.relpath(path),
+                "status": "⚠️ NO TRANSACTIONS",
+                "problem": "transactions key is missing, empty, or not a list"
+            })
+            continue
+
+        for i, tx in enumerate(tx_list):
+            for f in required_tx_fields:
+                if f not in tx:
+                    results.append({
+                        "file": os.path.relpath(path),
+                        "status": "⚠️ MISSING TX FIELD",
+                        "problem": f"Missing '{f}' in transaction #{i + 1}"
+                    })
+
+    df = pd.DataFrame(results)
+
+    if df.empty:
+        st.success("✅ All uploaded files passed validation.")
     else:
-        os.makedirs(extract_to, exist_ok=True)
-    st.warning("🧹 Cleared old YAMLs from /evidence")
+        st.warning(f"⚠️ {len(df)} issue(s) found.")
+        st.dataframe(df, use_container_width=True)
+        st.download_button("⬇️ Download Validation Report", data=df.to_csv(index=False), file_name="yaml_validation_issues.csv", mime="text/csv")
 
-    # Extract new ZIP
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_to)
-    st.info("📂 Extracted new ZIP contents to /evidence")
+    # Optional rebuild button
+    if st.button("🔧 Rebuild hawaii.db from /evidence"):
+        try:
+            script_path = os.path.join("scripts", "rebuild_db_from_yaml.py")
+            spec = importlib.util.spec_from_file_location("rebuild_db", script_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
 
-    # Show found YAMLs for confirmation
-    yaml_files = []
-    for root, _, files in os.walk(extract_to):
-        for file in files:
-            if file.lower().endswith(".yaml"):
-                yaml_files.append(os.path.join(root, file))
+            with st.spinner("Rebuilding database..."):
+                count = module.build_db()
 
-    if not yaml_files:
-        st.error("❌ No .yaml files found after extraction. Check the ZIP format.")
-        st.stop()
-    else:
-        st.success(f"✅ Found {len(yaml_files)} YAML file(s) in /evidence")
-        st.code('\n'.join(yaml_files[:20]) + ("\n... (truncated)" if len(yaml_files) > 20 else ""))
+            st.success(f"✅ Rebuild complete: {count} transaction row(s) inserted into hawaii.db")
 
-    # Run database builder
-    try:
-        script_path = os.path.join("scripts", "rebuild_db_from_yaml.py")
-        spec = importlib.util.spec_from_file_location("rebuild_db", script_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+            # Preview
+            import sqlite3
+            conn = sqlite3.connect(DATA_PATH)
+            df = pd.read_sql_query("SELECT * FROM parcels LIMIT 10", conn)
+            conn.close()
+            st.subheader("📄 Sample from Rebuilt Database:")
+            st.dataframe(df)
 
-        with st.spinner("🔧 Rebuilding hawaii.db from YAML files..."):
-            count = module.build_db()
-
-        st.success(f"🎉 Database rebuilt with {count} transaction row(s)")
-
-        # Show preview
-        conn = sqlite3.connect("data/hawaii.db")
-        df = pd.read_sql_query("SELECT * FROM parcels LIMIT 10", conn)
-        conn.close()
-        st.subheader("📄 Sample of parsed transactions:")
-        st.dataframe(df)
-
-    except Exception as e:
-        st.error(f"⚠️ Rebuild failed: {e}")
+        except Exception as e:
+            st.error(f"❌ Rebuild failed: {e}")
