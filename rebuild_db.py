@@ -8,7 +8,6 @@ def build_db(yaml_dir: str, output_path: str = "data/hawaii.db"):
     conn = sqlite3.connect(output_path)
     c = conn.cursor()
 
-    # Create parcels table with consistent schema
     c.execute("""
         CREATE TABLE IF NOT EXISTS parcels (
             certificate_id TEXT,
@@ -28,12 +27,19 @@ def build_db(yaml_dir: str, output_path: str = "data/hawaii.db"):
     """)
 
     count = 0
-    for fname in os.listdir(yaml_dir):
-        if not fname.endswith(".yaml"):
-            continue
+    yaml_files = [fname for fname in os.listdir(yaml_dir) if fname.endswith(".yaml")]
+    
+    if not yaml_files:
+        raise Exception("No YAML files found in directory.")
+
+    for fname in yaml_files:
         path = os.path.join(yaml_dir, fname)
         with open(path, "r") as f:
             data = yaml.safe_load(f)
+
+            if not data or "transactions" not in data:
+                continue  # Skip empty or invalid YAML files
+
             cert_id = os.path.splitext(fname)[0]
 
             for tx in data.get("transactions", []):
