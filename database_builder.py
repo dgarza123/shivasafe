@@ -1,99 +1,93 @@
 import os
-import yaml
-import sqlite3
 import zipfile
-import streamlit as st
-from datetime import datetime
+import sqlite3
+import yaml
+from glob import glob
 
 DB_PATH = "data/hawaii.db"
-UPLOAD_DIR = "uploads/extracted"
+UPLOAD_DIR = "uploads"
+EXTRACT_DIR = os.path.join(UPLOAD_DIR, "extracted")
 
-def extract_zip(zip_file):
-    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-        zip_ref.extractall(UPLOAD_DIR)
-    return UPLOAD_DIR
+def parse_yaml_file(path):
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data.get("transactions", []), data.get("sha256"), data.get("document")
 
-def infer_status(yaml_tx):
-    if yaml_tx.get("parcel_valid") is True:
-        return "Public"
-    if yaml_tx.get("parcel_valid") is False:
-        return "Disappeared"
-    if str(yaml_tx.get("parcel_id")).lower() in ["n/a", "unknown"]:
+def infer_status(parcel_id):
+    if not parcel_id or parcel_id.strip() in ["", "None"]:
         return "Unknown"
+    if parcel_id.startswith("TMK") or ":" in parcel_id:
+        return "Public"
     return "Unknown"
 
-def create_table(conn):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS parcels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+def normalize_amount(value):
+    if not value:
+        return None
+    return str(value).replace("$", "").replace(",", "").strip()
+
+def build_database_from_zip(zip_path):
+    # Step 1: Cleanup
+    if os.path.exists(EXTRACT_DIR):
+        for f in glob(f"{EXTRACT_DIR}/*"):
+            os.remove(f)
+    else:
+        os.makedirs(EXTRACT_DIR, exist_ok=True)
+
+    # Step 2: Extract zip
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(EXTRACT_DIR)
+
+    # Step 3: Parse and insert
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DROP TABLE IF EXISTS parcels")
+    c.execute("""
+        CREATE TABLE parcels (
             certificate_id TEXT,
-            parcel_id TEXT,
-            grantee TEXT,
             grantor TEXT,
+            grantee TEXT,
             amount TEXT,
-            country TEXT,
-            transfer_bank TEXT,
+            parcel_id TEXT,
+            parcel_valid BOOLEAN,
             registry_key TEXT,
             escrow_id TEXT,
+            cert_id TEXT,
             date_signed TEXT,
-            status TEXT,
+            transfer_bank TEXT,
+            country TEXT,
+            link TEXT,
             sha256 TEXT,
-            source_file TEXT
+            filename TEXT,
+            status TEXT
         )
     """)
-    conn.commit()
 
-def insert_transaction(conn, tx, cert_id, sha256, source_file):
-    fields = [
-        cert_id,
-        tx.get("parcel_id"),
-        tx.get("grantee"),
-        tx.get("grantor"),
-        tx.get("amount"),
-        tx.get("country"),
-        tx.get("transfer_bank"),
-        tx.get("registry_key"),
-        tx.get("escrow_id"),
-        tx.get("date_signed"),
-        infer_status(tx),
-        sha256,
-        source_file
-    ]
-    conn.execute("""
-        INSERT INTO parcels (
-            certificate_id, parcel_id, grantee, grantor, amount,
-            country, transfer_bank, registry_key, escrow_id,
-            date_signed, status, sha256, source_file
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, fields)
-
-def build_database_from_folder(folder):
-    conn = sqlite3.connect(DB_PATH)
-    create_table(conn)
-
-    total = 0
-    for fname in os.listdir(folder):
-        if not fname.endswith(".yaml"):
-            continue
-        try:
-            path = os.path.join(folder, fname)
-            with open(path, "r") as f:
-                data = yaml.safe_load(f)
-
-            sha256 = data.get("sha256") or ""
-            source_file = data.get("document") or ""
-            cert_id = data.get("certificate") or os.path.splitext(fname)[0]
-            for tx in data.get("transactions", []):
-                insert_transaction(conn, tx, cert_id, sha256, source_file)
-                total += 1
-        except Exception as e:
-            st.warning(f"⚠️ Failed to process {fname}: {e}")
+    count = 0
+    for yaml_path in glob(f"{EXTRACT_DIR}/*.yaml"):
+        rows, sha, filename = parse_yaml_file(yaml_path)
+        for row in rows:
+            row["status"] = infer_status(row.get("parcel_id"))
+            values = (
+                row.get("certificate_id"),
+                row.get("grantor"),
+                row.get("grantee"),
+                normalize_amount(row.get("amount")),
+                row.get("parcel_id"),
+                row.get("parcel_valid", False),
+                row.get("registry_key"),
+                row.get("escrow_id"),
+                row.get("cert_id"),
+                row.get("date_signed"),
+                row.get("transfer_bank"),
+                row.get("country"),
+                row.get("link"),
+                sha,
+                filename,
+                row.get("status")
+            )
+            c.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+            count += 1
 
     conn.commit()
     conn.close()
-    return total, DB_PATH
-
-def reset_database():
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-        st.info("\n\n⛔ Removed existing hawaii.db")
+    return count, DB_PATH
