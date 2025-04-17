@@ -1,93 +1,84 @@
+# database_builder.py
 import os
-import zipfile
 import sqlite3
+import zipfile
 import yaml
-from glob import glob
-
-DB_PATH = "data/hawaii.db"
-UPLOAD_DIR = "uploads"
-EXTRACT_DIR = os.path.join(UPLOAD_DIR, "extracted")
+import shutil
 
 def parse_yaml_file(path):
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    return data.get("transactions", []), data.get("sha256"), data.get("document")
-
-def infer_status(parcel_id):
-    if not parcel_id or parcel_id.strip() in ["", "None"]:
-        return "Unknown"
-    if parcel_id.startswith("TMK") or ":" in parcel_id:
-        return "Public"
-    return "Unknown"
-
-def normalize_amount(value):
-    if not value:
+    try:
+        with open(path, "r") as f:
+            return yaml.safe_load(f)
+    except:
         return None
-    return str(value).replace("$", "").replace(",", "").strip()
 
 def build_database_from_zip(zip_path):
-    # Step 1: Cleanup
-    if os.path.exists(EXTRACT_DIR):
-        for f in glob(f"{EXTRACT_DIR}/*"):
-            os.remove(f)
-    else:
-        os.makedirs(EXTRACT_DIR, exist_ok=True)
+    extract_path = "uploads/extracted"
+    if os.path.exists(extract_path):
+        shutil.rmtree(extract_path)
+    os.makedirs(extract_path, exist_ok=True)
 
-    # Step 2: Extract zip
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(EXTRACT_DIR)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
 
-    # Step 3: Parse and insert
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DROP TABLE IF EXISTS parcels")
-    c.execute("""
+    return build_database_from_folder(extract_path)
+
+def build_database_from_folder(folder):
+    db_path = "data/hawaii.db"
+    os.makedirs("data", exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS parcels")
+    cursor.execute("""
         CREATE TABLE parcels (
             certificate_id TEXT,
-            grantor TEXT,
-            grantee TEXT,
-            amount TEXT,
             parcel_id TEXT,
-            parcel_valid BOOLEAN,
-            registry_key TEXT,
-            escrow_id TEXT,
-            cert_id TEXT,
-            date_signed TEXT,
-            transfer_bank TEXT,
+            amount TEXT,
+            grantee TEXT,
+            grantor TEXT,
             country TEXT,
-            link TEXT,
-            sha256 TEXT,
-            filename TEXT,
-            status TEXT
+            transfer_bank TEXT,
+            escrow_id TEXT,
+            registry_key TEXT,
+            date_signed TEXT,
+            status TEXT,
+            latitude REAL,
+            longitude REAL
         )
     """)
 
     count = 0
-    for yaml_path in glob(f"{EXTRACT_DIR}/*.yaml"):
-        rows, sha, filename = parse_yaml_file(yaml_path)
-        for row in rows:
-            row["status"] = infer_status(row.get("parcel_id"))
-            values = (
-                row.get("certificate_id"),
-                row.get("grantor"),
-                row.get("grantee"),
-                normalize_amount(row.get("amount")),
-                row.get("parcel_id"),
-                row.get("parcel_valid", False),
-                row.get("registry_key"),
-                row.get("escrow_id"),
-                row.get("cert_id"),
-                row.get("date_signed"),
-                row.get("transfer_bank"),
-                row.get("country"),
-                row.get("link"),
-                sha,
-                filename,
-                row.get("status")
-            )
-            c.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
-            count += 1
+    for root, _, files in os.walk(folder):
+        for file in files:
+            if file.endswith(".yaml") or file.endswith(".yml"):
+                full_path = os.path.join(root, file)
+                data = parse_yaml_file(full_path)
+                if not data:
+                    continue
+                txs = data.get("transactions", [])
+                for tx in txs:
+                    row = (
+                        tx.get("cert_id"),
+                        tx.get("parcel_id"),
+                        tx.get("amount"),
+                        tx.get("grantee"),
+                        tx.get("grantor"),
+                        tx.get("country"),
+                        tx.get("transfer_bank"),
+                        tx.get("escrow_id"),
+                        tx.get("registry_key"),
+                        tx.get("date_signed"),
+                        tx.get("status", "Public"),
+                        tx.get("latitude"),
+                        tx.get("longitude")
+                    )
+                    cursor.execute("""
+                        INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, row)
+                    count += 1
 
     conn.commit()
     conn.close()
-    return count, DB_PATH
+    return count, db_path
