@@ -1,69 +1,70 @@
 # database_builder.py
-
 import os
 import sqlite3
 import yaml
 
-def parse_yaml(yaml_path):
-    with open(yaml_path, 'r') as f:
+def parse_transaction_file(path):
+    with open(path, "r") as f:
         data = yaml.safe_load(f)
-    rows = []
+    txns = []
     for tx in data.get("transactions", []):
-        row = {
-            "certificate_id": data.get("certificate_id", ""),
-            "sha256": data.get("sha256", ""),
-            "parcel_id": tx.get("parcel_id", ""),
+        txns.append({
+            "certificate_id": data.get("document", ""),
+            "parcel_id": tx.get("parcel_id", "").strip(),
+            "latitude": tx.get("latitude"),
+            "longitude": tx.get("longitude"),
             "grantee": tx.get("grantee", ""),
             "grantor": tx.get("grantor", ""),
             "amount": tx.get("amount", ""),
-            "country": tx.get("country", ""),
             "registry_key": tx.get("registry_key", ""),
             "escrow_id": tx.get("escrow_id", ""),
-            "status": "Unknown" if tx.get("parcel_valid") is None else ("Public" if tx["parcel_valid"] else "Disappeared"),
-            "latitude": tx.get("latitude", None),
-            "longitude": tx.get("longitude", None),
-        }
-        rows.append(row)
-    return rows
+            "transfer_bank": tx.get("transfer_bank", ""),
+            "country": tx.get("country", ""),
+            "status": "Public" if tx.get("parcel_valid") else "Disappeared",
+        })
+    return txns
 
-def build_database_from_folder(folder_path, output_path="data/hawaii.db"):
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    conn = sqlite3.connect(output_path)
+def build_database_from_zip(zip_folder):
+    db_path = "data/hawaii.db"
+    os.makedirs("data", exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
+
     c.execute("DROP TABLE IF EXISTS parcels")
     c.execute("""
         CREATE TABLE parcels (
             certificate_id TEXT,
-            sha256 TEXT,
             parcel_id TEXT,
+            latitude REAL,
+            longitude REAL,
             grantee TEXT,
             grantor TEXT,
             amount TEXT,
-            country TEXT,
             registry_key TEXT,
             escrow_id TEXT,
-            status TEXT,
-            latitude REAL,
-            longitude REAL
+            transfer_bank TEXT,
+            country TEXT,
+            status TEXT
         )
     """)
 
-    total_rows = 0
-    for root, _, files in os.walk(folder_path):
-        for fname in files:
-            if fname.endswith(".yaml") or fname.endswith(".yml"):
-                full_path = os.path.join(root, fname)
-                rows = parse_yaml(full_path)
-                for row in rows:
-                    c.execute("""
-                        INSERT INTO parcels (
-                            certificate_id, sha256, parcel_id, grantee, grantor,
-                            amount, country, registry_key, escrow_id, status,
-                            latitude, longitude
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, tuple(row.values()))
-                    total_rows += 1
+    total = 0
+    for root, dirs, files in os.walk(zip_folder):
+        for file in files:
+            if file.endswith(".yaml"):
+                path = os.path.join(root, file)
+                txns = parse_transaction_file(path)
+                for txn in txns:
+                    columns = list(txn.keys())
+                    values = [txn[col] for col in columns]
+                    placeholders = ", ".join("?" for _ in columns)
+                    c.execute(f"""
+                        INSERT INTO parcels ({', '.join(columns)})
+                        VALUES ({placeholders})
+                    """, values)
+                total += len(txns)
 
     conn.commit()
     conn.close()
-    return total_rows, output_path
+    return total, db_path
