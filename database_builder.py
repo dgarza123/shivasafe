@@ -1,70 +1,99 @@
 import os
 import yaml
 import sqlite3
+import zipfile
+import streamlit as st
+from datetime import datetime
 
-def build_database_from_folder(folder_path):
-    db_path = "data/hawaii.db"
-    os.makedirs("data", exist_ok=True)
+DB_PATH = "data/hawaii.db"
+UPLOAD_DIR = "uploads/extracted"
 
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+def extract_zip(zip_file):
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        zip_ref.extractall(UPLOAD_DIR)
+    return UPLOAD_DIR
 
-    # Create table
-    cur.execute("""
+def infer_status(yaml_tx):
+    if yaml_tx.get("parcel_valid") is True:
+        return "Public"
+    if yaml_tx.get("parcel_valid") is False:
+        return "Disappeared"
+    if str(yaml_tx.get("parcel_id")).lower() in ["n/a", "unknown"]:
+        return "Unknown"
+    return "Unknown"
+
+def create_table(conn):
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS parcels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             certificate_id TEXT,
             parcel_id TEXT,
-            parcel_valid BOOLEAN,
-            grantor TEXT,
             grantee TEXT,
+            grantor TEXT,
             amount TEXT,
-            escrow_id TEXT,
-            registry_key TEXT,
             country TEXT,
             transfer_bank TEXT,
-            link TEXT,
+            registry_key TEXT,
+            escrow_id TEXT,
             date_signed TEXT,
+            status TEXT,
             sha256 TEXT,
-            filename TEXT,
-            status TEXT
+            source_file TEXT
         )
     """)
-
     conn.commit()
 
-    count = 0
+def insert_transaction(conn, tx, cert_id, sha256, source_file):
+    fields = [
+        cert_id,
+        tx.get("parcel_id"),
+        tx.get("grantee"),
+        tx.get("grantor"),
+        tx.get("amount"),
+        tx.get("country"),
+        tx.get("transfer_bank"),
+        tx.get("registry_key"),
+        tx.get("escrow_id"),
+        tx.get("date_signed"),
+        infer_status(tx),
+        sha256,
+        source_file
+    ]
+    conn.execute("""
+        INSERT INTO parcels (
+            certificate_id, parcel_id, grantee, grantor, amount,
+            country, transfer_bank, registry_key, escrow_id,
+            date_signed, status, sha256, source_file
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, fields)
 
-    for fname in os.listdir(folder_path):
+def build_database_from_folder(folder):
+    conn = sqlite3.connect(DB_PATH)
+    create_table(conn)
+
+    total = 0
+    for fname in os.listdir(folder):
         if not fname.endswith(".yaml"):
             continue
+        try:
+            path = os.path.join(folder, fname)
+            with open(path, "r") as f:
+                data = yaml.safe_load(f)
 
-        full_path = os.path.join(folder_path, fname)
-        with open(full_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        sha = data.get("sha256", "")
-        document = data.get("document", "")
-        for tx in data.get("transactions", []):
-            values = (
-                tx.get("cert_id", ""),
-                tx.get("parcel_id", ""),
-                str(tx.get("parcel_valid", True)),
-                tx.get("grantor", ""),
-                tx.get("grantee", ""),
-                tx.get("amount", ""),
-                tx.get("escrow_id", ""),
-                tx.get("registry_key", ""),
-                tx.get("country", ""),
-                tx.get("transfer_bank", ""),
-                tx.get("link", ""),
-                tx.get("date_signed", ""),
-                sha,
-                document,
-                "Disappeared" if tx.get("parcel_valid") is False else "Public"
-            )
-            cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
-            count += 1
+            sha256 = data.get("sha256") or ""
+            source_file = data.get("document") or ""
+            cert_id = data.get("certificate") or os.path.splitext(fname)[0]
+            for tx in data.get("transactions", []):
+                insert_transaction(conn, tx, cert_id, sha256, source_file)
+                total += 1
+        except Exception as e:
+            st.warning(f"⚠️ Failed to process {fname}: {e}")
 
     conn.commit()
     conn.close()
-    return count, db_path
+    return total, DB_PATH
+
+def reset_database():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+        st.info("\n\n⛔ Removed existing hawaii.db")
