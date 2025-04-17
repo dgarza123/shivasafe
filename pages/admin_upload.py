@@ -8,7 +8,7 @@ import sqlite3
 st.set_page_config(page_title="Admin: Upload & Rebuild", layout="centered")
 st.title("🛠️ Upload YAML ZIP and Rebuild hawaii.db")
 
-uploaded_file = st.file_uploader("📦 Upload a ZIP with nested folders of YAMLs", type="zip")
+uploaded_file = st.file_uploader("📦 Upload a ZIP with one or more YAML files (in folders is OK)", type="zip")
 
 if uploaded_file:
     os.makedirs("upload", exist_ok=True)
@@ -23,7 +23,21 @@ if uploaded_file:
 
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_to)
-    st.info("📂 ZIP extracted (with folders) to /evidence")
+    st.info("📂 ZIP extracted to /evidence (with folder support)")
+
+    # 🔍 Diagnostic: show YAMLs found
+    yaml_files = []
+    for root, _, files in os.walk(extract_to):
+        for file in files:
+            if file.lower().endswith(".yaml"):
+                yaml_files.append(os.path.join(root, file))
+
+    if not yaml_files:
+        st.error("❌ No .yaml files found. Check ZIP structure.")
+        st.stop()
+    else:
+        st.success(f"✅ Found {len(yaml_files)} YAML file(s)")
+        st.code('\n'.join(yaml_files))
 
     # Run rebuild script
     try:
@@ -35,14 +49,14 @@ if uploaded_file:
         with st.spinner("🔧 Rebuilding database..."):
             count = module.build_db()
 
-        st.success(f"🎉 Database rebuilt with {count} transactions")
+        st.success(f"🎉 Database rebuilt with {count} transaction row(s)")
 
         # Show preview
         conn = sqlite3.connect("data/hawaii.db")
         df = pd.read_sql_query("SELECT * FROM parcels LIMIT 10", conn)
         conn.close()
-        st.subheader("📄 Preview of parsed transactions:")
+        st.subheader("📄 Sample of parsed transactions:")
         st.dataframe(df)
 
     except Exception as e:
-        st.error(f"⚠️ Failed to rebuild DB: {e}")
+        st.error(f"⚠️ Rebuild failed: {e}")
