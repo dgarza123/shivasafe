@@ -1,91 +1,70 @@
-# pages/database_builder.py
-
 import os
-import io
-import zipfile
 import yaml
 import sqlite3
-import pandas as pd
-import streamlit as st
 
-st.set_page_config(page_title="Build Database", layout="centered")
-st.title("🔧 Build Hawaii Database from YAML Files")
+def build_database_from_folder(folder_path):
+    db_path = "data/hawaii.db"
+    os.makedirs("data", exist_ok=True)
 
-DATA_DIR = "data"
-UPLOAD_DIR = "uploads/extracted"
-DB_PATH = os.path.join(DATA_DIR, "hawaii.db")
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
 
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+    # Create table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS parcels (
+            certificate_id TEXT,
+            parcel_id TEXT,
+            parcel_valid BOOLEAN,
+            grantor TEXT,
+            grantee TEXT,
+            amount TEXT,
+            escrow_id TEXT,
+            registry_key TEXT,
+            country TEXT,
+            transfer_bank TEXT,
+            link TEXT,
+            date_signed TEXT,
+            sha256 TEXT,
+            filename TEXT,
+            status TEXT
+        )
+    """)
 
-# Upload form
-with st.form("upload_zip"):
-    zip_file = st.file_uploader("Upload a ZIP of YAML files", type=["zip"])
-    submitted = st.form_submit_button("Build Database")
+    conn.commit()
 
-if submitted:
-    if zip_file is None:
-        st.error("Please upload a .zip file.")
-        st.stop()
+    count = 0
 
-    # Clear upload dir
-    for f in os.listdir(UPLOAD_DIR):
-        os.remove(os.path.join(UPLOAD_DIR, f))
-
-    # Extract ZIP
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        zip_ref.extractall(UPLOAD_DIR)
-
-    st.success(f"✅ ZIP extracted to {UPLOAD_DIR}")
-
-    # Parse YAML files
-    all_rows = []
-    for fname in os.listdir(UPLOAD_DIR):
+    for fname in os.listdir(folder_path):
         if not fname.endswith(".yaml"):
             continue
-        try:
-            with open(os.path.join(UPLOAD_DIR, fname), "r", encoding="utf-8") as f:
-                y = yaml.safe_load(f)
 
-            sha256 = y.get("sha256", "")
-            cert_id = y.get("document", os.path.splitext(fname)[0])
+        full_path = os.path.join(folder_path, fname)
+        with open(full_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
 
-            for tx in y.get("transactions", []):
-                row = {
-                    "certificate_id": cert_id,
-                    "sha256": sha256,
-                    "parcel_id": tx.get("parcel_id"),
-                    "parcel_valid": tx.get("parcel_valid", False),
-                    "grantee": tx.get("grantee"),
-                    "grantor": tx.get("grantor"),
-                    "amount": tx.get("amount"),
-                    "status": tx.get("status", "Unknown"),
-                    "escrow_id": tx.get("escrow_id", ""),
-                    "registry_key": tx.get("registry_key", ""),
-                    "country": tx.get("country", ""),
-                    "transfer_bank": tx.get("transfer_bank", ""),
-                    "link": tx.get("link", ""),
-                    "latitude": tx.get("latitude", None),
-                    "longitude": tx.get("longitude", None),
-                    "date_signed": tx.get("date_signed", "")
-                }
-                all_rows.append(row)
+        sha = data.get("sha256", "")
+        document = data.get("document", "")
+        for tx in data.get("transactions", []):
+            values = (
+                tx.get("cert_id", ""),
+                tx.get("parcel_id", ""),
+                str(tx.get("parcel_valid", True)),
+                tx.get("grantor", ""),
+                tx.get("grantee", ""),
+                tx.get("amount", ""),
+                tx.get("escrow_id", ""),
+                tx.get("registry_key", ""),
+                tx.get("country", ""),
+                tx.get("transfer_bank", ""),
+                tx.get("link", ""),
+                tx.get("date_signed", ""),
+                sha,
+                document,
+                "Disappeared" if tx.get("parcel_valid") is False else "Public"
+            )
+            cur.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+            count += 1
 
-        except Exception as e:
-            st.warning(f"⚠️ Failed to parse {fname}: {e}")
-
-    if not all_rows:
-        st.error("❌ No valid transactions found.")
-        st.stop()
-
-    # Build DB
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-        st.info("⛔ Removed existing hawaii.db")
-
-    df = pd.DataFrame(all_rows)
-    conn = sqlite3.connect(DB_PATH)
-    df.to_sql("parcels", conn, index=False)
+    conn.commit()
     conn.close()
-
-    st.success(f"✅ Done. {len(df)} transactions saved to {DB_PATH}")
+    return count, db_path
