@@ -3,7 +3,7 @@
 import streamlit as st
 import os
 import zipfile
-from rebuild_db import build_db  # your canvas script should be saved as rebuild_db.py
+from rebuild_db import build_db
 
 st.set_page_config("Upload & Build Hawaii DB", layout="centered")
 st.title("📦 Upload Parcel + YAML ZIP")
