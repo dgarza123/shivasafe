@@ -48,7 +48,7 @@ def normalize_parcel_id(raw_parcel):
         return ""
     if isinstance(raw_parcel, str) and "TMK" in raw_parcel:
         raw_parcel = raw_parcel.replace("TMK:", "").replace("TMK", "").strip()
-    return raw_parcel
+    return raw_parcel.strip()
 
 def normalize_transaction(tx):
     raw_parcel = tx.get("parcel_id") or tx.get("parcel") or ""
@@ -81,56 +81,69 @@ def build_db():
             if file.lower().endswith(".yaml"):
                 yaml_paths.append(os.path.join(root, file))
 
-    print(f"📁 Found {len(yaml_paths)} YAML file(s)")
+    print(f"\n📁 Scanning {len(yaml_paths)} YAML file(s) in {SOURCE_FOLDER}\n")
 
     for path in yaml_paths:
         try:
             data = parse_yaml(path)
             if not data:
-                print(f"⚠️ Skipped {path}: empty or invalid YAML")
+                print(f"❌ {path} — EMPTY or not parseable")
                 continue
 
             if "transactions" not in data or not isinstance(data["transactions"], list):
-                print(f"⚠️ Skipped {path}: missing or malformed 'transactions'")
+                print(f"❌ {path} — MISSING or invalid 'transactions' list")
                 continue
 
             header = normalize_top_level(data, path)
+            txs = data["transactions"]
 
-            for tx in data["transactions"]:
+            print(f"\n📄 Processing: {os.path.basename(path)} ({len(txs)} transactions)")
+
+            for i, tx in enumerate(txs):
                 tx_norm = normalize_transaction(tx)
+                print(f"\n  🔍 TX {i+1} normalized:\n    " + "\n    ".join(f"{k}: {repr(v)}" for k, v in tx_norm.items()))
+
+                # Skip logic with reason logging
                 if not tx_norm["grantor"] or not tx_norm["grantee"]:
-                    print(f"⚠️ Skipped incomplete transaction in {path}")
+                    print(f"  ⚠️ Skipped TX {i+1}: Missing grantor or grantee")
                     continue
 
-                conn.execute(f"""
-                    INSERT INTO {TABLE_NAME} (
-                        certificate_id, sha256, filename, grantor, grantee,
-                        amount, parcel_id, parcel_valid, registry_key,
-                        escrow_id, transfer_bank, country, date_signed, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    header["cert"],
-                    header["sha"],
-                    header["filename"],
-                    tx_norm["grantor"],
-                    tx_norm["grantee"],
-                    tx_norm["amount"],
-                    tx_norm["parcel_id"],
-                    tx_norm["parcel_valid"],
-                    tx_norm["registry_key"],
-                    tx_norm["escrow_id"],
-                    tx_norm["transfer_bank"],
-                    tx_norm["country"],
-                    tx_norm["date_signed"],
-                    tx_norm["status"]
-                ))
-                inserted += 1
-                print(f"✅ Inserted transaction from {path}")
+                if not tx_norm["parcel_id"]:
+                    print(f"  ⚠️ Skipped TX {i+1}: Missing or invalid parcel_id")
+                    continue
+
+                try:
+                    conn.execute(f"""
+                        INSERT INTO {TABLE_NAME} (
+                            certificate_id, sha256, filename, grantor, grantee,
+                            amount, parcel_id, parcel_valid, registry_key,
+                            escrow_id, transfer_bank, country, date_signed, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        header["cert"],
+                        header["sha"],
+                        header["filename"],
+                        tx_norm["grantor"],
+                        tx_norm["grantee"],
+                        tx_norm["amount"],
+                        tx_norm["parcel_id"],
+                        tx_norm["parcel_valid"],
+                        tx_norm["registry_key"],
+                        tx_norm["escrow_id"],
+                        tx_norm["transfer_bank"],
+                        tx_norm["country"],
+                        tx_norm["date_signed"],
+                        tx_norm["status"]
+                    ))
+                    inserted += 1
+                    print(f"  ✅ Inserted TX {i+1}")
+                except Exception as e:
+                    print(f"  ❌ DB error TX {i+1}: {e}")
 
         except Exception as e:
-            print(f"❌ Error parsing {path}: {e}")
+            print(f"❌ Failed to parse {path}: {e}")
 
     conn.commit()
     conn.close()
-    print(f"✅ Done. Inserted {inserted} transaction(s).")
+    print(f"\n✅ Done. Inserted {inserted} transaction(s).\n")
     return inserted
