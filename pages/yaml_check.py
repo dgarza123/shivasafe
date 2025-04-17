@@ -18,10 +18,18 @@ if uploaded_files:
             with open(path, "r") as f:
                 try:
                     data = yaml.safe_load(f)
+                    assert "certificate_number" in data, "Missing 'certificate_number' key"
+                    assert "sha256" in data, "Missing 'sha256' key"
+                    assert "document" in data, "Missing 'document' key"
                     assert "transactions" in data, "Missing 'transactions' key"
                     assert isinstance(data["transactions"], list), "'transactions' is not a list"
                     for txn in data["transactions"]:
-                        required_fields = ["parcel_id", "grantor", "grantee", "date_signed"]
+                        required_fields = [
+                            "grantor", "grantee", "amount", "parcel_id", "parcel_valid",
+                            "registry_key", "escrow_id", "transfer_bank", "country",
+                            "routing_code", "account_fragment", "link", "gps",
+                            "method", "signing_date"
+                        ]
                         missing = [field for field in required_fields if field not in txn]
                         assert not missing, f"Missing fields: {missing}"
                     st.success(f"✅ {uploaded_file.name}: OK")
