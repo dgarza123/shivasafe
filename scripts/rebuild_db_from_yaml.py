@@ -88,5 +88,5 @@ def build_db():
 
     conn.commit()
     conn.close()
-    print(f"✅ Built {DB_PATH} with {inserted} transactions.")
+    print(f"✅ Built {DB_PATH} with {inserted} transaction(s).")
     return inserted
