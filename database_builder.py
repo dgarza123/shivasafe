@@ -1,79 +1,93 @@
-# database_builder.py
 import os
-import yaml
 import sqlite3
-import pandas as pd
+import yaml
+import hashlib
+import glob
 
-def extract_transactions(yaml_path):
-    with open(yaml_path, "r") as f:
-        data = yaml.safe_load(f)
+def parse_yaml(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-    sha256 = data.get("sha256", "")
-    document = data.get("document", "")
+def infer_status(parcel_id, valid_tmk_list):
+    if not parcel_id:
+        return "Unknown"
+    if parcel_id in valid_tmk_list:
+        return "Public"
+    return "Disappeared"
 
-    transactions = data.get("transactions", [])
-    results = []
-    for tx in transactions:
-        results.append({
-            "certificate_id": tx.get("cert_id", ""),
-            "parcel_id": tx.get("parcel_id", ""),
-            "amount": tx.get("amount", ""),
-            "grantee": tx.get("grantee", ""),
-            "grantor": tx.get("grantor", ""),
-            "registry_key": tx.get("registry_key", ""),
-            "escrow_id": tx.get("escrow_id", ""),
-            "country": tx.get("country", ""),
-            "transfer_bank": tx.get("transfer_bank", ""),
-            "status": tx.get("status", "Unknown"),
-            "latitude": tx.get("latitude", None),
-            "longitude": tx.get("longitude", None),
-            "sha256": sha256,
-            "document": document,
-            "link": tx.get("link", ""),
-            "date_signed": tx.get("date_signed", "")
-        })
-    return results
-
-def build_database_from_zip(zip_folder):
+def build_database_from_zip_extract(folder_path, tmk_csv_path=None):
     db_path = "data/hawaii.db"
     os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    c = conn.cursor()
 
-    cursor.execute("DROP TABLE IF EXISTS parcels")
-    cursor.execute("""
-        CREATE TABLE parcels (
-            certificate_id TEXT,
-            parcel_id TEXT,
-            amount TEXT,
-            grantee TEXT,
-            grantor TEXT,
-            registry_key TEXT,
-            escrow_id TEXT,
-            country TEXT,
-            transfer_bank TEXT,
-            status TEXT,
-            latitude REAL,
-            longitude REAL,
+    # Create table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS parcels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             sha256 TEXT,
             document TEXT,
+            grantor TEXT,
+            grantee TEXT,
+            amount TEXT,
+            parcel_id TEXT,
+            parcel_valid BOOLEAN,
+            registry_key TEXT,
+            escrow_id TEXT,
+            cert_id TEXT,
+            date_signed TEXT,
+            transfer_bank TEXT,
+            country TEXT,
             link TEXT,
-            date_signed TEXT
+            status TEXT
         )
     """)
 
-    all_records = []
-    for root, _, files in os.walk(zip_folder):
-        for file in files:
-            if file.endswith(".yaml"):
-                try:
-                    records = extract_transactions(os.path.join(root, file))
-                    all_records.extend(records)
-                except Exception as e:
-                    print(f"⚠️ Failed to parse {file}: {e}")
+    # Load optional TMK list if provided
+    valid_tmk = set()
+    if tmk_csv_path and os.path.exists(tmk_csv_path):
+        import pandas as pd
+        df = pd.read_csv(tmk_csv_path)
+        valid_tmk = set(df["parcel_id"].astype(str).str.strip())
 
-    df = pd.DataFrame(all_records)
-    df.to_sql("parcels", conn, if_exists="replace", index=False)
+    # Parse YAML files
+    count = 0
+    for file in glob.glob(os.path.join(folder_path, "*.yaml")):
+        ydata = parse_yaml(file)
+        sha256 = ydata.get("sha256", "")
+        document = ydata.get("document", "")
+        txs = ydata.get("transactions", [])
+        for tx in txs:
+            parcel_id = tx.get("parcel_id")
+            status = infer_status(parcel_id, valid_tmk)
+
+            row = (
+                sha256,
+                document,
+                tx.get("grantor"),
+                tx.get("grantee"),
+                tx.get("amount"),
+                parcel_id,
+                tx.get("parcel_valid", False),
+                tx.get("registry_key"),
+                tx.get("escrow_id"),
+                tx.get("cert_id"),
+                tx.get("date_signed"),
+                tx.get("transfer_bank"),
+                tx.get("country"),
+                tx.get("link"),
+                status,
+            )
+
+            c.execute("""
+                INSERT INTO parcels (
+                    sha256, document, grantor, grantee, amount, parcel_id, parcel_valid,
+                    registry_key, escrow_id, cert_id, date_signed, transfer_bank,
+                    country, link, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, row)
+            count += 1
+
     conn.commit()
     conn.close()
-    return len(df), db_path
+    return count, db_path
