@@ -58,6 +58,7 @@ def build_db():
                     cert = data.get("certificate_number") or os.path.splitext(file)[0]
 
                     for tx in data.get("transactions", []):
+                        date = tx.get("date_signed") or tx.get("signing_date") or ""
                         conn.execute(f"""
                             INSERT INTO {TABLE_NAME} (
                                 certificate_id, sha256, filename, grantor, grantee,
@@ -77,7 +78,7 @@ def build_db():
                             tx.get("escrow_id"),
                             tx.get("transfer_bank"),
                             tx.get("country"),
-                            tx.get("date_signed"),
+                            date,
                             infer_status(tx)
                         ))
                         inserted += 1
