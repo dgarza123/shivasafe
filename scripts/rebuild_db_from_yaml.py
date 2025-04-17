@@ -21,12 +21,11 @@ def get_visibility_flags(block):
     )
 
 def extract_transaction_blocks(data):
-    # Try multiple common fields
     for key in ["transactions", "payments", "entities"]:
         block = data.get(key)
         if isinstance(block, list) and all(isinstance(x, dict) for x in block):
             return block
-    return []  # fallback: nothing usable
+    return []
 
 def build_db():
     os.makedirs("data", exist_ok=True)
@@ -56,6 +55,9 @@ def build_db():
         try:
             with open(os.path.join(EVIDENCE_FOLDER, fname), "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
+            if not isinstance(data, dict):
+                print(f"[!] Skipping {fname} — top-level YAML object is not a dictionary.")
+                continue
         except Exception as e:
             print(f"[✘] Failed to parse {fname}: {e}")
             continue
@@ -63,10 +65,10 @@ def build_db():
         record_id = data.get("record_id") or fname.replace("_entities.yaml", "")
         pdf_file = data.get("pdf_file") or ""
         sha256 = data.get("sha256") or sha256_of_file(os.path.join(EVIDENCE_FOLDER, pdf_file))
-        transactions = extract_transaction_blocks(data)
 
+        transactions = extract_transaction_blocks(data)
         if not transactions:
-            print(f"[!] No valid transaction blocks in {fname}. Skipped.")
+            print(f"[!] No valid transaction blocks found in {fname}. Skipped.")
             continue
 
         for txn in transactions:
