@@ -3,7 +3,7 @@
 import streamlit as st
 import os
 import zipfile
-from database_builder import build_database_from_zip
+from database_builder import build_database_from_folder
 
 st.set_page_config("Upload & Build Hawaii DB", layout="centered")
 st.title("📦 Upload Parcel + YAML ZIP")
