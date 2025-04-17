@@ -3,20 +3,20 @@
 import streamlit as st
 import os
 import zipfile
-from rebuild_db import build_db
+import shutil
+from rebuild_db_script import build_db  # match the filename of your script
 
-st.set_page_config("Upload & Build Hawaii DB", layout="centered")
-st.title("📦 Upload Parcel + YAML ZIP")
+st.set_page_config("Upload YAML DB", layout="centered")
+st.title("📦 Upload YAML ZIP to Build hawaii.db")
 
-st.markdown("Upload a `.zip` file containing only `.yaml` transaction files.")
-
-uploaded_file = st.file_uploader("Upload a ZIP file", type="zip")
+uploaded_file = st.file_uploader("Upload a .zip containing only .yaml files", type="zip")
 
 if uploaded_file:
+    # Cleanup old db
     db_path = "data/hawaii.db"
     if os.path.exists(db_path):
         os.remove(db_path)
-        st.warning("⛔ Removed existing hawaii.db")
+        st.warning("⛔ Removed old hawaii.db")
 
     # Save zip
     os.makedirs("uploads", exist_ok=True)
@@ -25,20 +25,22 @@ if uploaded_file:
         f.write(uploaded_file.read())
     st.success("✅ ZIP uploaded")
 
-    # Extract
-    extract_path = os.path.join("uploads", "yamls")
-    os.makedirs(extract_path, exist_ok=True)
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_path)
-    st.info("📂 Extracted YAMLs to /uploads/yamls")
+    # Extract ZIP
+    extract_dir = os.path.join("uploads", "yamls")
+    if os.path.exists(extract_dir):
+        shutil.rmtree(extract_dir)
+    os.makedirs(extract_dir, exist_ok=True)
 
-    # Build DB
-    with st.spinner("🔧 Building database from YAMLs..."):
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(extract_dir)
+    st.info(f"📂 Extracted to {extract_dir}")
+
+    # Rebuild database
+    with st.spinner("🔧 Rebuilding hawaii.db..."):
         try:
-            count = build_db(extract_path)
-            st.success(f"✅ Done. {count} transactions saved to {db_path}")
+            count = build_db(extract_dir, db_path)
+            st.success(f"✅ Done. {count} transactions written to {db_path}")
 
-            # Allow download
             with open(db_path, "rb") as f:
                 st.download_button("⬇️ Download hawaii.db", f, file_name="hawaii.db")
         except Exception as e:
