@@ -1,84 +1,128 @@
-import streamlit as st
-import pandas as pd
-import sqlite3
-import pydeck as pdk
+# pages/map_viewer.py
+
 import os
+import streamlit as st
+import sqlite3
+import pandas as pd
+import pydeck as pdk
 
-st.set_page_config(page_title="Parcel Suppression Map", layout="wide")
-st.title("🗺️ Hawaii Parcel Suppression Map (2015–2025)")
+st.set_page_config(page_title="Parcel Transfer Map", layout="wide")
+st.title("Parcel Transfer Map")
 
-# Load database
-conn = sqlite3.connect("data/hawaii.db")
-df = pd.read_sql_query("SELECT * FROM parcels", conn)
+# Load Hawaii.csv coordinates
+CSV_PATH = "Hawaii.csv"
+DB_PATH = "data/hawaii.db"
+
+# Check for database
+if not os.path.exists(DB_PATH):
+    st.error("❌ Missing hawaii.db in /data")
+    st.stop()
+
+# Check for coordinate CSV
+if not os.path.exists(CSV_PATH):
+    st.error("❌ Missing Hawaii.csv in root folder.")
+    st.stop()
+
+# Load coordinates
+coord_df = pd.read_csv(CSV_PATH)
+coord_df.columns = [c.strip().lower() for c in coord_df.columns]
+
+# Load transactions
+conn = sqlite3.connect(DB_PATH)
+df = pd.read_sql_query("SELECT * FROM parcels WHERE status != 'Fabricated'", conn)
 conn.close()
+df.columns = [c.strip().lower() for c in df.columns]
 
-# Load coordinate map
-coord_df = pd.read_csv("Hawaii.csv")  # must include parcel_id, lat, lon
-coord_df.rename(columns={"TMK": "parcel_id"}, inplace=True)
+# Merge on parcel_id
+if "parcel_id" not in df.columns or "parcel_id" not in coord_df.columns:
+    st.error("❌ Missing 'parcel_id' column in data.")
+    st.stop()
 
-# Join coordinates
 merged = pd.merge(df, coord_df, on="parcel_id", how="left")
-merged = merged.dropna(subset=["lat", "lon"])
 
-# Suppression logic
-def classify(row):
-    if row["present_2015"] and row["present_2022"] and not row["present_2025"]:
-        return "Disappeared"
-    elif row["present_2015"] and not row["present_2022"] and not row["present_2025"]:
-        return "Erased"
-    elif not row["present_2015"] and row["present_2025"]:
-        return "Fabricated"
-    elif all([row["present_2015"], row["present_2018"], row["present_2022"], row["present_2025"]]):
-        return "Public"
-    return "Other"
+if merged.empty:
+    st.warning("No matching parcel data available.")
+    st.stop()
 
-merged["status"] = merged.apply(classify, axis=1)
+# Define map view centered on Hawaii
+view = pdk.ViewState(latitude=20.8, longitude=-157.5, zoom=6.3, pitch=30)
 
-# Color coding
-color_map = {
-    "Disappeared": [255, 0, 0],
-    "Erased": [255, 165, 0],
-    "Fabricated": [0, 100, 255],
-    "Public": [0, 200, 0],
-    "Other": [180, 180, 180],
+# Status color mapping
+status_colors = {
+    "public": [0, 200, 0],
+    "disappeared": [220, 0, 0],
+    "erased": [255, 165, 0]
 }
-merged["color"] = merged["status"].map(color_map)
 
-# Layer
-layer = pdk.Layer(
+# Points
+scatter_data = []
+arc_data = []
+
+for _, row in merged.iterrows():
+    lat = row.get("latitude")
+    lon = row.get("longitude")
+    status = str(row.get("status", "")).lower()
+
+    if pd.isna(lat) or pd.isna(lon):
+        continue
+
+    # Add map point
+    scatter_data.append({
+        "position": [lon, lat],
+        "status": status,
+        "certificate": row.get("certificate_id", ""),
+        "parcel": row.get("parcel_id", ""),
+        "grantee": row.get("grantee", ""),
+        "amount": row.get("amount", "")
+    })
+
+    # Offshore line if destination country
+    if row.get("country"):
+        to_coords = [122.56, 11.6]  # Philippines default
+        if row["country"].lower() == "switzerland":
+            to_coords = [8.54, 47.37]
+        elif row["country"].lower() == "singapore":
+            to_coords = [103.82, 1.35]
+
+        arc_data.append({
+            "from": [lon, lat],
+            "to": to_coords,
+            "color": [255, 0, 0] if status != "public" else [0, 0, 255],
+            "tooltip": f"{row.get('grantee', '')} — {row.get('amount', '')}"
+        })
+
+# Deck layers
+scatter_layer = pdk.Layer(
     "ScatterplotLayer",
-    data=merged,
-    get_position='[lon, lat]',
+    data=scatter_data,
+    get_position="position",
     get_fill_color="color",
-    get_radius=60,
+    get_radius=250,
+    get_fill_color="[200, 200, 200]",
     pickable=True,
 )
 
-# Tooltip
+arc_layer = pdk.Layer(
+    "ArcLayer",
+    data=arc_data,
+    get_source_position="from",
+    get_target_position="to",
+    get_source_color="color",
+    get_target_color="color",
+    get_width=2,
+    pickable=True,
+    auto_highlight=True,
+)
+
 tooltip = {
-    "html": """
-    <b>Parcel:</b> {parcel_id}<br/>
-    <b>Status:</b> {status}<br/>
-    <b>Certificate:</b> {certificate_id}<br/>
-    <b>Grantee:</b> {grantee}<br/>
-    <b>Amount:</b> {amount}<br/>
-    """,
-    "style": {"backgroundColor": "white", "color": "black"},
+    "html": "<b>{certificate}</b><br />{parcel}<br />{grantee}<br />{amount}<br />{status}",
+    "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Render
+# Show map
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/light-v9",
-    initial_view_state=pdk.ViewState(
-        latitude=21.3,
-        longitude=-157.8,
-        zoom=7,
-        pitch=0,
-    ),
-    layers=[layer],
-    tooltip=tooltip,
+    initial_view_state=view,
+    layers=[scatter_layer, arc_layer],
+    tooltip=tooltip
 ))
-
-# Summary table
-with st.expander("📊 Suppression Breakdown"):
-    st.dataframe(merged.groupby("status").size().reset_index(name="Count"))
