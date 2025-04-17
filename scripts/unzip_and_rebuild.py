@@ -1,12 +1,13 @@
 import os
+import sys
 import zipfile
 import shutil
-import sys
 
-# Ensure root is in sys.path so Streamlit can find local modules
-sys.path.append(os.path.abspath("."))
+# Add local script directory to path so it can find sibling modules
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(SCRIPT_DIR)
 
-from scripts.rebuild_db_from_yaml import build_db
+from rebuild_db_from_yaml import build_db
 
 EVIDENCE_DIR = "evidence"
 ZIP_FILE = "upload/yamls.zip"
