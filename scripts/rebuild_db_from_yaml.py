@@ -51,15 +51,35 @@ def build_db():
             if file.lower().endswith(".yaml"):
                 yaml_paths.append(os.path.join(root, file))
 
+    print(f"📁 Scanning {len(yaml_paths)} YAML file(s)...")
+
     for path in yaml_paths:
         try:
             data = parse_yaml(path)
+
+            if not data:
+                print(f"⚠️ Skipped {path}: empty or invalid YAML")
+                continue
+
+            if "transactions" not in data:
+                print(f"⚠️ Skipped {path}: no 'transactions' key")
+                continue
+
+            if not isinstance(data["transactions"], list):
+                print(f"⚠️ Skipped {path}: 'transactions' is not a list")
+                continue
+
             sha = data.get("sha256", "")
             filename = data.get("document", "")
             cert = data.get("certificate_number") or os.path.splitext(os.path.basename(path))[0]
 
-            for tx in data.get("transactions", []):
+            for tx in data["transactions"]:
+                if not tx.get("grantor") or not tx.get("grantee"):
+                    print(f"⚠️ Skipped incomplete transaction in {path}: missing grantor/grantee")
+                    continue
+
                 date = tx.get("date_signed") or tx.get("signing_date") or ""
+
                 conn.execute(f"""
                     INSERT INTO {TABLE_NAME} (
                         certificate_id, sha256, filename, grantor, grantee,
@@ -83,10 +103,11 @@ def build_db():
                     infer_status(tx)
                 ))
                 inserted += 1
+
         except Exception as e:
-            print(f"⚠️ Skipped {path}: {e}")
+            print(f"❌ Error parsing {path}: {e}")
 
     conn.commit()
     conn.close()
-    print(f"✅ Built {DB_PATH} with {inserted} transaction(s).")
+    print(f"✅ Done. {inserted} transaction(s) inserted into {DB_PATH}")
     return inserted
