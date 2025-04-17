@@ -1,18 +1,18 @@
 import os
 import shutil
+import streamlit as st
 
-SOURCE_PATH = "your/path/to/yamls.zip"  # ← Update this path
+st.set_page_config(page_title="Upload YAML ZIP", layout="centered")
+st.title("📦 Upload ZIP to Docker Upload Folder")
+
+SOURCE_PATH = st.text_input("Path to your yamls.zip file", value="/path/to/yamls.zip")
 DEST_DIR = "upload"
 DEST_PATH = os.path.join(DEST_DIR, "yamls.zip")
 
-def upload_zip():
-    if not os.path.exists(SOURCE_PATH):
-        print(f"[✘] Source file not found: {SOURCE_PATH}")
-        return
-
-    os.makedirs(DEST_DIR, exist_ok=True)
-    shutil.copy(SOURCE_PATH, DEST_PATH)
-    print(f"[✔] Copied {SOURCE_PATH} → {DEST_PATH}")
-
-if __name__ == "__main__":
-    upload_zip()
+if st.button("Upload ZIP"):
+    if not os.path.isfile(SOURCE_PATH):
+        st.error(f"File not found: {SOURCE_PATH}")
+    else:
+        os.makedirs(DEST_DIR, exist_ok=True)
+        shutil.copy(SOURCE_PATH, DEST_PATH)
+        st.success(f"✅ Copied to {DEST_PATH}")
