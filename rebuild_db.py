@@ -1,62 +1,50 @@
+# rebuild_db.py
+
 import os
 import sqlite3
 import yaml
+import glob
 
-DB_PATH = "data/hawaii.db"
-
-def build_db(yaml_folder):
+def build_db(yaml_folder="data"):
     os.makedirs("data", exist_ok=True)
+    db_path = "data/hawaii.db"
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # Create the parcels table if it doesn't exist
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS parcels (
-        certificate_id TEXT,
-        parcel_id TEXT,
-        parcel_valid BOOLEAN,
-        grantor TEXT,
-        grantee TEXT,
-        amount TEXT,
-        registry_key TEXT,
-        escrow_id TEXT,
-        date_signed TEXT,
-        transfer_bank TEXT,
-        country TEXT,
-        link TEXT,
-        status TEXT
-    )
+    c.execute("DROP TABLE IF EXISTS parcels")
+    c.execute("""
+        CREATE TABLE parcels (
+            certificate_id TEXT,
+            parcel_id TEXT,
+            latitude REAL,
+            longitude REAL,
+            status TEXT,
+            grantee TEXT,
+            amount TEXT
+        )
     """)
 
     total = 0
-    for fname in os.listdir(yaml_folder):
-        if not fname.endswith(".yaml"):
-            continue
-        path = os.path.join(yaml_folder, fname)
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                data = yaml.safe_load(f)
-                for tx in data.get("transactions", []):
-                    row = (
-                        data.get("certificate_id"),
-                        tx.get("parcel_id"),
-                        tx.get("parcel_valid"),
-                        tx.get("grantor"),
-                        tx.get("grantee"),
-                        tx.get("amount"),
-                        tx.get("registry_key"),
-                        tx.get("escrow_id"),
-                        tx.get("date_signed"),
-                        tx.get("transfer_bank"),
-                        tx.get("country"),
-                        tx.get("link"),
-                        "Public" if tx.get("parcel_valid") else "Disappeared"
-                    )
-                    cursor.execute("INSERT INTO parcels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
-                    total += 1
-            except Exception as e:
-                print(f"[!] Skipped {fname}: {e}")
+    for f in glob.glob(os.path.join(yaml_folder, "*.yaml")):
+        with open(f, "r") as file:
+            yml = yaml.safe_load(file)
+
+        cert_id = os.path.basename(f).replace("_entities.yaml", "")
+        transactions = yml.get("transactions", [])
+        for tx in transactions:
+            c.execute("""
+                INSERT INTO parcels (certificate_id, parcel_id, latitude, longitude, status, grantee, amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                cert_id,
+                tx.get("parcel_id", ""),
+                tx.get("latitude"),
+                tx.get("longitude"),
+                tx.get("status", ""),
+                tx.get("grantee", ""),
+                tx.get("amount", "")
+            ))
+            total += 1
 
     conn.commit()
     conn.close()
