@@ -1,18 +1,21 @@
 # database_builder.py
-import os
-import sqlite3
-import yaml
 
-def parse_transaction_file(path):
-    with open(path, "r") as f:
+import os
+import yaml
+import sqlite3
+
+def parse_yaml_file(path):
+    with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    txns = []
-    for tx in data.get("transactions", []):
-        txns.append({
-            "certificate_id": data.get("document", ""),
-            "parcel_id": tx.get("parcel_id", "").strip(),
-            "latitude": tx.get("latitude"),
-            "longitude": tx.get("longitude"),
+
+    transactions = data.get("transactions", [])
+    parsed = []
+    for tx in transactions:
+        parsed.append({
+            "certificate_id": data.get("certificate_id", "Unknown"),
+            "sha256": data.get("sha256", ""),
+            "parcel_id": tx.get("parcel_id", ""),
+            "parcel_valid": tx.get("parcel_valid", False),
             "grantee": tx.get("grantee", ""),
             "grantor": tx.get("grantor", ""),
             "amount": tx.get("amount", ""),
@@ -20,24 +23,28 @@ def parse_transaction_file(path):
             "escrow_id": tx.get("escrow_id", ""),
             "transfer_bank": tx.get("transfer_bank", ""),
             "country": tx.get("country", ""),
-            "status": "Public" if tx.get("parcel_valid") else "Disappeared",
+            "status": tx.get("status", "Public"),
+            "latitude": tx.get("latitude", None),
+            "longitude": tx.get("longitude", None),
+            "link": tx.get("link", "")
         })
-    return txns
+    return parsed
 
-def build_database_from_zip(zip_folder):
+def build_database_from_folder(folder_path):
     db_path = "data/hawaii.db"
     os.makedirs("data", exist_ok=True)
 
     conn = sqlite3.connect(db_path)
-    c = conn.cursor()
+    cursor = conn.cursor()
 
-    c.execute("DROP TABLE IF EXISTS parcels")
-    c.execute("""
-        CREATE TABLE parcels (
+    # Create parcels table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS parcels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             certificate_id TEXT,
+            sha256 TEXT,
             parcel_id TEXT,
-            latitude REAL,
-            longitude REAL,
+            parcel_valid BOOLEAN,
             grantee TEXT,
             grantor TEXT,
             amount TEXT,
@@ -45,26 +52,41 @@ def build_database_from_zip(zip_folder):
             escrow_id TEXT,
             transfer_bank TEXT,
             country TEXT,
-            status TEXT
+            status TEXT,
+            latitude REAL,
+            longitude REAL,
+            link TEXT
         )
     """)
 
-    total = 0
-    for root, dirs, files in os.walk(zip_folder):
-        for file in files:
-            if file.endswith(".yaml"):
-                path = os.path.join(root, file)
-                txns = parse_transaction_file(path)
-                for txn in txns:
-                    columns = list(txn.keys())
-                    values = [txn[col] for col in columns]
-                    placeholders = ", ".join("?" for _ in columns)
-                    c.execute(f"""
-                        INSERT INTO parcels ({', '.join(columns)})
-                        VALUES ({placeholders})
-                    """, values)
-                total += len(txns)
+    conn.commit()
+
+    # Scan all .yaml files
+    count = 0
+    for root, _, files in os.walk(folder_path):
+        for fname in files:
+            if fname.endswith(".yaml") or fname.endswith(".yml"):
+                try:
+                    path = os.path.join(root, fname)
+                    rows = parse_yaml_file(path)
+                    for row in rows:
+                        values = tuple(row.get(k) for k in [
+                            "certificate_id", "sha256", "parcel_id", "parcel_valid", "grantee",
+                            "grantor", "amount", "registry_key", "escrow_id", "transfer_bank",
+                            "country", "status", "latitude", "longitude", "link"
+                        ])
+                        cursor.execute("""
+                            INSERT INTO parcels (
+                                certificate_id, sha256, parcel_id, parcel_valid, grantee,
+                                grantor, amount, registry_key, escrow_id, transfer_bank,
+                                country, status, latitude, longitude, link
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, values)
+                        count += 1
+                except Exception as e:
+                    print(f"[!] Failed to parse {fname}: {e}")
 
     conn.commit()
     conn.close()
-    return total, db_path
+
+    return count, db_path
