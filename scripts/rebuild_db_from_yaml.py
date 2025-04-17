@@ -36,6 +36,36 @@ def infer_status(entry):
         return "Disappeared"
     return "Public"
 
+def normalize_top_level(data, path):
+    return {
+        "cert": data.get("certificate_number") or data.get("cert_id") or os.path.splitext(os.path.basename(path))[0],
+        "sha": data.get("sha256", ""),
+        "filename": data.get("document") or data.get("file_name") or ""
+    }
+
+def normalize_parcel_id(raw_parcel):
+    if not raw_parcel:
+        return ""
+    if isinstance(raw_parcel, str) and "TMK" in raw_parcel:
+        raw_parcel = raw_parcel.replace("TMK:", "").replace("TMK", "").strip()
+    return raw_parcel
+
+def normalize_transaction(tx):
+    raw_parcel = tx.get("parcel_id") or tx.get("parcel") or ""
+    return {
+        "grantor": tx.get("grantor"),
+        "grantee": tx.get("grantee"),
+        "amount": tx.get("amount") or tx.get("amount_usd"),
+        "parcel_id": normalize_parcel_id(raw_parcel),
+        "parcel_valid": bool(tx.get("parcel_valid", True)),
+        "registry_key": tx.get("registry_key"),
+        "escrow_id": tx.get("escrow_id"),
+        "transfer_bank": tx.get("transfer_bank"),
+        "country": tx.get("country"),
+        "date_signed": tx.get("date_signed") or tx.get("signing_date") or "",
+        "status": infer_status(tx)
+    }
+
 def build_db():
     if not os.path.exists(SOURCE_FOLDER):
         raise FileNotFoundError(f"Missing folder: {SOURCE_FOLDER}")
@@ -51,34 +81,26 @@ def build_db():
             if file.lower().endswith(".yaml"):
                 yaml_paths.append(os.path.join(root, file))
 
-    print(f"📁 Scanning {len(yaml_paths)} YAML file(s)...")
+    print(f"📁 Found {len(yaml_paths)} YAML file(s)")
 
     for path in yaml_paths:
         try:
             data = parse_yaml(path)
-
             if not data:
                 print(f"⚠️ Skipped {path}: empty or invalid YAML")
                 continue
 
-            if "transactions" not in data:
-                print(f"⚠️ Skipped {path}: no 'transactions' key")
+            if "transactions" not in data or not isinstance(data["transactions"], list):
+                print(f"⚠️ Skipped {path}: missing or malformed 'transactions'")
                 continue
 
-            if not isinstance(data["transactions"], list):
-                print(f"⚠️ Skipped {path}: 'transactions' is not a list")
-                continue
-
-            sha = data.get("sha256", "")
-            filename = data.get("document", "")
-            cert = data.get("certificate_number") or os.path.splitext(os.path.basename(path))[0]
+            header = normalize_top_level(data, path)
 
             for tx in data["transactions"]:
-                if not tx.get("grantor") or not tx.get("grantee"):
-                    print(f"⚠️ Skipped incomplete transaction in {path}: missing grantor/grantee")
+                tx_norm = normalize_transaction(tx)
+                if not tx_norm["grantor"] or not tx_norm["grantee"]:
+                    print(f"⚠️ Skipped incomplete transaction in {path}")
                     continue
-
-                date = tx.get("date_signed") or tx.get("signing_date") or ""
 
                 conn.execute(f"""
                     INSERT INTO {TABLE_NAME} (
@@ -87,27 +109,28 @@ def build_db():
                         escrow_id, transfer_bank, country, date_signed, status
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    cert,
-                    sha,
-                    filename,
-                    tx.get("grantor"),
-                    tx.get("grantee"),
-                    tx.get("amount"),
-                    tx.get("parcel_id"),
-                    bool(tx.get("parcel_valid", True)),
-                    tx.get("registry_key"),
-                    tx.get("escrow_id"),
-                    tx.get("transfer_bank"),
-                    tx.get("country"),
-                    date,
-                    infer_status(tx)
+                    header["cert"],
+                    header["sha"],
+                    header["filename"],
+                    tx_norm["grantor"],
+                    tx_norm["grantee"],
+                    tx_norm["amount"],
+                    tx_norm["parcel_id"],
+                    tx_norm["parcel_valid"],
+                    tx_norm["registry_key"],
+                    tx_norm["escrow_id"],
+                    tx_norm["transfer_bank"],
+                    tx_norm["country"],
+                    tx_norm["date_signed"],
+                    tx_norm["status"]
                 ))
                 inserted += 1
+                print(f"✅ Inserted transaction from {path}")
 
         except Exception as e:
             print(f"❌ Error parsing {path}: {e}")
 
     conn.commit()
     conn.close()
-    print(f"✅ Done. {inserted} transaction(s) inserted into {DB_PATH}")
+    print(f"✅ Done. Inserted {inserted} transaction(s).")
     return inserted
