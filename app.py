@@ -1,35 +1,45 @@
-# test_app.py
+# app.py
+
 import streamlit as st
-import sqlite3
-import pandas as pd
 import os
+import zipfile
+from rebuild_db import build_db  # your canvas script should be saved as rebuild_db.py
 
-st.set_page_config("🧪 Database Test Page")
-st.title("🧪 Test Parcel DB Table")
+st.set_page_config("Upload & Build Hawaii DB", layout="centered")
+st.title("📦 Upload Parcel + YAML ZIP")
 
-DB_PATH = "data/hawaii.db"
+st.markdown("Upload a `.zip` file containing only `.yaml` transaction files.")
 
-if not os.path.exists(DB_PATH):
-    st.error("❌ hawaii.db not found in /data")
-    st.stop()
+uploaded_file = st.file_uploader("Upload a ZIP file", type="zip")
 
-try:
-    conn = sqlite3.connect(DB_PATH)
-    tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
-    st.markdown("### 📋 Tables in DB:")
-    st.dataframe(tables)
+if uploaded_file:
+    db_path = "data/hawaii.db"
+    if os.path.exists(db_path):
+        os.remove(db_path)
+        st.warning("⛔ Removed existing hawaii.db")
 
-    if 'parcels' in tables['name'].values:
-        df = pd.read_sql_query("PRAGMA table_info(parcels)", conn)
-        st.markdown("### 🧬 Schema for 'parcels' Table")
-        st.dataframe(df)
+    # Save zip
+    os.makedirs("uploads", exist_ok=True)
+    zip_path = os.path.join("uploads", uploaded_file.name)
+    with open(zip_path, "wb") as f:
+        f.write(uploaded_file.read())
+    st.success("✅ ZIP uploaded")
 
-        st.markdown("### 🧪 Sample Records")
-        sample = pd.read_sql_query("SELECT * FROM parcels LIMIT 5", conn)
-        st.dataframe(sample)
-    else:
-        st.warning("❌ 'parcels' table not found in hawaii.db")
+    # Extract
+    extract_path = os.path.join("uploads", "yamls")
+    os.makedirs(extract_path, exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
+    st.info("📂 Extracted YAMLs to /uploads/yamls")
 
-    conn.close()
-except Exception as e:
-    st.error(f"❌ Failed to load database: {e}")
+    # Build DB
+    with st.spinner("🔧 Building database from YAMLs..."):
+        try:
+            count = build_db(extract_path)
+            st.success(f"✅ Done. {count} transactions saved to {db_path}")
+
+            # Allow download
+            with open(db_path, "rb") as f:
+                st.download_button("⬇️ Download hawaii.db", f, file_name="hawaii.db")
+        except Exception as e:
+            st.error(f"❌ Failed to build database: {e}")
