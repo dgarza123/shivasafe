@@ -1,5 +1,3 @@
-# scripts/rebuild_db_from_yaml.py
-
 import os
 import yaml
 import sqlite3
@@ -40,50 +38,53 @@ def infer_status(entry):
 
 def build_db():
     if not os.path.exists(SOURCE_FOLDER):
-        raise FileNotFoundError(f"YAML source folder not found: {SOURCE_FOLDER}")
+        raise FileNotFoundError(f"Missing folder: {SOURCE_FOLDER}")
 
     os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     create_table(conn)
 
     inserted = 0
+    yaml_paths = []
     for root, _, files in os.walk(SOURCE_FOLDER):
         for file in files:
-            if file.endswith(".yaml"):
-                full_path = os.path.join(root, file)
-                try:
-                    data = parse_yaml(full_path)
-                    sha = data.get("sha256", "")
-                    filename = data.get("document", "")
-                    cert = data.get("certificate_number") or os.path.splitext(file)[0]
+            if file.lower().endswith(".yaml"):
+                yaml_paths.append(os.path.join(root, file))
 
-                    for tx in data.get("transactions", []):
-                        date = tx.get("date_signed") or tx.get("signing_date") or ""
-                        conn.execute(f"""
-                            INSERT INTO {TABLE_NAME} (
-                                certificate_id, sha256, filename, grantor, grantee,
-                                amount, parcel_id, parcel_valid, registry_key,
-                                escrow_id, transfer_bank, country, date_signed, status
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            cert,
-                            sha,
-                            filename,
-                            tx.get("grantor"),
-                            tx.get("grantee"),
-                            tx.get("amount"),
-                            tx.get("parcel_id"),
-                            bool(tx.get("parcel_valid", True)),
-                            tx.get("registry_key"),
-                            tx.get("escrow_id"),
-                            tx.get("transfer_bank"),
-                            tx.get("country"),
-                            date,
-                            infer_status(tx)
-                        ))
-                        inserted += 1
-                except Exception as e:
-                    print(f"⚠️ Failed to process {file}: {e}")
+    for path in yaml_paths:
+        try:
+            data = parse_yaml(path)
+            sha = data.get("sha256", "")
+            filename = data.get("document", "")
+            cert = data.get("certificate_number") or os.path.splitext(os.path.basename(path))[0]
+
+            for tx in data.get("transactions", []):
+                date = tx.get("date_signed") or tx.get("signing_date") or ""
+                conn.execute(f"""
+                    INSERT INTO {TABLE_NAME} (
+                        certificate_id, sha256, filename, grantor, grantee,
+                        amount, parcel_id, parcel_valid, registry_key,
+                        escrow_id, transfer_bank, country, date_signed, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    cert,
+                    sha,
+                    filename,
+                    tx.get("grantor"),
+                    tx.get("grantee"),
+                    tx.get("amount"),
+                    tx.get("parcel_id"),
+                    bool(tx.get("parcel_valid", True)),
+                    tx.get("registry_key"),
+                    tx.get("escrow_id"),
+                    tx.get("transfer_bank"),
+                    tx.get("country"),
+                    date,
+                    infer_status(tx)
+                ))
+                inserted += 1
+        except Exception as e:
+            print(f"⚠️ Skipped {path}: {e}")
 
     conn.commit()
     conn.close()
