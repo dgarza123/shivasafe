@@ -1,54 +1,84 @@
-import streamlit as st
+# File: pages/timeline.py
+
 import os
-import yaml
-from datetime import datetime
+import re
+import streamlit as st
+import pandas as pd
 
-EVIDENCE_DIR = "evidence"
-DEFAULT_COORDS = [21.3069, -157.8583]
+st.set_page_config(page_title="Parcel Disappearance Timeline", layout="wide")
+st.title("📈 Parcel Disappearance Timeline")
 
-st.set_page_config(page_title="Transaction Timeline", layout="wide")
-st.title("📅 Forensic Transaction Timeline")
+# ————————————————————————————————
+# 1) Discover all HawaiiYYYY.csv files in data/
+# ————————————————————————————————
+year_files = {}
+for fname in os.listdir("data"):
+    if fname.lower().startswith("hawai") and fname.lower().endswith(".csv"):
+        m = re.search(r"(\d{4})", fname)
+        if m:
+            year = int(m.group(1))
+            year_files[year] = os.path.join("data", fname)
 
-def load_yaml_pairs():
-    pairs = []
-    for fname in sorted(os.listdir(EVIDENCE_DIR)):
-        if fname.endswith("_entities.yaml"):
-            try:
-                with open(os.path.join(EVIDENCE_DIR, fname), "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if isinstance(data, dict) and "transactions" in data:
-                    pairs.append((fname, data))
-            except:
-                continue
-    return pairs
+if not year_files:
+    st.error("❌ No files like Hawaii2020.csv, Hawaii2021.csv, etc., found in /data.")
+    st.stop()
 
-timeline = load_yaml_pairs()
+# Sort years
+years = sorted(year_files.keys())
+baseline = years[0]
 
-if not timeline:
-    st.info("No evidence files found.")
-else:
-    for fname, data in timeline:
-        path = os.path.join(EVIDENCE_DIR, fname)
-        mod_time = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
-        st.markdown(f"## {data.get('document', fname.replace('_entities.yaml', '.pdf'))}")
-        st.caption(f"🕒 Last Modified: {mod_time}")
-        st.caption(f"🔑 SHA256: `{data.get('sha256', 'unknown')}`")
+st.sidebar.header("Timeline Settings")
+st.sidebar.markdown(f"• **Baseline year (year 0):** {baseline}")
+st.sidebar.markdown(f"• **Comparisons:** {', '.join(map(str, years[1:]))}")
 
-        for tx in data.get("transactions", []):
-            st.markdown("---")
-            if "cert_id" in tx:
-                st.markdown(f"#### Certificate: {tx['cert_id']}")
+# ————————————————————————————————
+# 2) Load parcel_id sets for each year
+# ————————————————————————————————
+parcel_sets = {}
+for yr, path in year_files.items():
+    try:
+        df_year = pd.read_csv(path, dtype=str)
+    except Exception as e:
+        st.error(f"❌ Failed to load `{path}`: {e}")
+        st.stop()
+    # Find the column containing the parcel/T MK
+    tmk_col = next((c for c in df_year.columns if c.lower().strip() in ("tmk", "parcel_id")), None)
+    if not tmk_col:
+        st.error(f"❌ `{path}` is missing a 'TMK' or 'parcel_id' column.")
+        st.stop()
+    parcel_sets[yr] = set(df_year[tmk_col].astype(str).str.strip())
 
-            for key, value in tx.items():
-                if not value:
-                    continue  # Skip empty values
+# ————————————————————————————————
+# 3) Compute disappearance counts vs baseline
+# ————————————————————————————————
+baseline_set = parcel_sets[baseline]
+timeline = []
+for yr in years:
+    current = parcel_sets[yr]
+    disappeared = baseline_set - current
+    timeline.append({"year": yr, "disappeared_count": len(disappeared)})
 
-                if key == "link":
-                    st.markdown(f"- **Verification Link**: [{value}]({value})")
-                elif isinstance(value, bool):
-                    icon = "✅" if value else "❌"
-                    st.markdown(f"- **{key.replace('_', ' ').title()}**: {icon}")
-                else:
-                    st.markdown(f"- **{key.replace('_', ' ').title()}**: {value}")
+df_timeline = pd.DataFrame(timeline)
 
-        st.markdown("---")
+# ————————————————————————————————
+# 4) Render the line + point chart
+# ————————————————————————————————
+st.markdown(f"### Parcels from **{baseline}** that have disappeared over time")
+chart = pd.DataFrame({
+    "Disappeared": df_timeline["disappeared_count"]
+}, index=df_timeline["year"])
+st.line_chart(chart, use_container_width=True)
+
+# ————————————————————————————————
+# 5) Show the data table
+# ————————————————————————————————
+st.markdown("#### Raw Numbers")
+st.dataframe(df_timeline.set_index("year"))
+
+# ————————————————————————————————
+# 6) Summary info
+# ————————————————————————————————
+st.info(
+    f"• Baseline ({baseline}): {len(baseline_set)} parcels\n"
+    f"• Latest ({years[-1]}): {df_timeline.loc[df_timeline['year'] == years[-1], 'disappeared_count'].values[0]} disappeared"
+)
