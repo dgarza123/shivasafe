@@ -12,20 +12,17 @@ if not os.path.exists(DB_PATH):
     st.error("❌ Database not found at data/hawaii.db. Please rebuild it first.")
     st.stop()
 
-# ——————————————————————————————————————————————————————
-# 1) Load & clean data
-# ——————————————————————————————————————————————————————
+# 1) Load & filter
 conn = sqlite3.connect(DB_PATH)
 df = pd.read_sql_query("SELECT * FROM parcels", conn)
 conn.close()
 
-# Drop anything without valid numeric GPS
-df = (
-    df
-    .dropna(subset=["latitude", "longitude"])
-    .loc[lambda d: d.latitude.apply(lambda x: isinstance(x, (int, float)))
-                   & d.longitude.apply(lambda x: isinstance(x, (int, float)))]
-)
+# Keep only valid numeric GPS
+df = df.dropna(subset=["latitude", "longitude"])
+df = df[
+    df["latitude"].apply(lambda x: isinstance(x, (int, float))) &
+    df["longitude"].apply(lambda x: isinstance(x, (int, float)))
+]
 
 if df.empty:
     st.warning("⚠️ No parcels with valid GPS found.")
@@ -33,37 +30,29 @@ if df.empty:
 
 st.markdown(f"**Total parcels in DB:** {len(df)}    •  **Shown on map:** {len(df)}")
 
-# ——————————————————————————————————————————————————————
-# 2) Derive simple status & DLNR flag
-# ——————————————————————————————————————————————————————
-# If parcel_valid==True → Public, else Disappeared
+# 2) Status & DLNR flag
 df["status"] = df["parcel_valid"].apply(lambda v: "Public" if v else "Disappeared")
-
-# Flag any grantor containing “DLNR”
 df["is_dnrl"] = df["grantor"].str.contains("DLNR", case=False, na=False)
 
-# ——————————————————————————————————————————————————————
-# 3) Pick colors
-# ——————————————————————————————————————————————————————
+# 3) Color and radius
 def pick_color(r):
     if r.is_dnrl:
-        return [255, 0, 0]         # red for all DLNR sales
+        return [255, 0, 0]
     if r.status == "Disappeared":
-        return [255, 200, 0]       # amber for disappeared
-    return [0, 200, 0]             # green for public
+        return [255, 200, 0]
+    return [0, 200, 0]
 
 df["color"] = df.apply(pick_color, axis=1)
+df["radius"] = df["is_dnrl"].apply(lambda x: 300).astype(int)  # 300 m dots
 
-# ——————————————————————————————————————————————————————
-# 4) Build PyDeck layer
-# ——————————————————————————————————————————————————————
+# 4) PyDeck layer
 layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
     get_position='[longitude, latitude]',
     get_fill_color="color",
-    get_radius=800,
-    pickable=True,
+    get_radius="radius",
+    pickable=True
 )
 
 tooltip = {
@@ -75,7 +64,7 @@ tooltip = {
     "style": {"backgroundColor":"black","color":"white"}
 }
 
-# Center on O‘ahu
+# Center on Oʻahu
 view = pdk.ViewState(
     latitude=21.3050,
     longitude=-157.8577,
@@ -84,9 +73,6 @@ view = pdk.ViewState(
     bearing=0
 )
 
-# ——————————————————————————————————————————————————————
-# 5) Render map
-# ——————————————————————————————————————————————————————
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/light-v10",
     initial_view_state=view,
