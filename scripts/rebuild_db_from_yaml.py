@@ -4,7 +4,6 @@ import sqlite3
 import json
 import pandas as pd
 
-# ——————————————————————————————————————————————————————
 DB_PATH       = "data/hawaii.db"
 SOURCE_FOLDER = "evidence"
 TABLE_NAME    = "parcels"
@@ -22,8 +21,7 @@ def load_master_coords():
             if {"parcel_id","latitude","longitude"}.issubset(df.columns):
                 coords = {
                     row["parcel_id"].strip(): (
-                        float(row["latitude"]), 
-                        float(row["longitude"])
+                        float(row["latitude"]), float(row["longitude"])
                     )
                     for _, row in df.iterrows()
                     if str(row["parcel_id"]).strip()
@@ -63,11 +61,8 @@ def create_table(conn):
     """)
     conn.commit()
 
-def parse_yaml(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
 def build_db():
+    # Prepare DB
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
@@ -77,17 +72,25 @@ def build_db():
     create_table(conn)
     inserted = 0
 
+    # Walk evidence folder
     for root, _, files in os.walk(SOURCE_FOLDER):
         for fname in files:
             if not fname.lower().endswith((".yaml", ".yml")):
                 continue
+            path = os.path.join(root, fname)
 
-            data = parse_yaml(os.path.join(root, fname))
-            # skip YAMLs that root to a list or empty
-            if not isinstance(data, dict):
-                print(f"⚠️ Skipping non‑mapping YAML: {fname}")
+            # 1) Try to parse the YAML, skip on error
+            try:
+                data = yaml.safe_load(open(path, "r", encoding="utf-8")) or {}
+            except yaml.YAMLError as e:
+                print(f"⚠️ Skipping invalid YAML `{fname}`: {e}")
                 continue
 
+            if not isinstance(data, dict):
+                print(f"⚠️ Skipping non‐mapping YAML `{fname}`")
+                continue
+
+            # 2) Determine certificate ID
             cert = (
                 data.get("certificate_number")
                 or data.get("cert_id")
@@ -98,29 +101,29 @@ def build_db():
             doc = data.get("document", "")
 
             txs = data.get("transactions", [])
-            # skip if transactions is not a list
             if not isinstance(txs, list):
-                print(f"⚠️ Skipping `{fname}`: no transaction list")
+                print(f"⚠️ Skipping `{fname}`: transactions not a list")
                 continue
 
+            # 3) Insert each transaction
             for tx in txs:
-                # 1) GPS: inline or master lookup
+                # GPS: inline or fallback
                 lat = lon = None
                 gps = tx.get("gps")
                 if isinstance(gps, (list, tuple)) and len(gps) >= 2:
                     lat, lon = gps[0], gps[1]
                 else:
                     pid = str(tx.get("parcel_id","")).strip()
-                    if pid and pid in master_coords:
+                    if pid in master_coords:
                         lat, lon = master_coords[pid]
 
-                # 2) Nested entities
-                re = tx.get("related_entities", {}) or {}
+                # Nested entities (may be missing)
+                re  = tx.get("related_entities", {}) or {}
                 former = re.get("former_grantors", []) or []
                 trueg  = re.get("true_grantees", [])  or []
                 inter  = re.get("intermediaries", []) or []
 
-                # 3) Insert
+                # Execute insert
                 conn.execute(f"""
                     INSERT INTO {TABLE_NAME} (
                         certificate_id, sha256, document, grantor, grantee,
@@ -149,9 +152,9 @@ def build_db():
                     tx.get("link"),
                     tx.get("method"),
                     tx.get("signing_date"),
-                    json.dumps(former,  ensure_ascii=False),
-                    json.dumps(trueg,   ensure_ascii=False),
-                    json.dumps(inter,   ensure_ascii=False),
+                    json.dumps(former, ensure_ascii=False),
+                    json.dumps(trueg,  ensure_ascii=False),
+                    json.dumps(inter,  ensure_ascii=False),
                 ))
                 inserted += 1
 
