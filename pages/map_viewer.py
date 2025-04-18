@@ -3,46 +3,56 @@ import pandas as pd
 import sqlite3
 import pydeck as pdk
 import os
+import importlib.util
 
 st.set_page_config(page_title="Parcel Suppression Map", layout="wide")
 st.title("🗺️ TMK Suppression Map")
 
 DB_PATH = "data/hawaii.db"
-if not os.path.exists(DB_PATH):
-    st.error("❌ hawaii.db not found.")
-    st.stop()
+REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
 
-# Load data
-try:
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM parcels", conn)
+def load_database():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query("SELECT * FROM parcels", conn)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(parcels);")
+        schema = [col[1] for col in cursor.fetchall()]
+        conn.close()
+        return df, schema
+    except Exception as e:
+        st.error(f"❌ Failed to load DB: {e}")
+        return None, []
 
-    # Print DB schema
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(parcels);")
-    schema_rows = cursor.fetchall()
-    conn.close()
+def rebuild_database():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+    spec = importlib.util.spec_from_file_location("rebuild_db", REBUILD_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    inserted = module.build_db()
+    st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-except Exception as e:
-    st.error(f"❌ Failed to load DB: {e}")
-    st.stop()
+# Initial DB load
+df, schema = load_database()
 
-# Show actual schema
-st.subheader("📋 Current DB Columns:")
-st.code("\n".join([f"{col[1]} ({col[2]})" for col in schema_rows]))
-
-# Check for required fields
+# Check schema
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
-missing = [col for col in required_fields if col not in df.columns]
+missing = [f for f in required_fields if f not in schema]
+
 if missing:
-    st.error(f"❌ Your database is missing required column(s): {', '.join(missing)}")
-    st.warning("Please delete `data/hawaii.db` and rebuild it using the correct `rebuild_db_from_yaml.py`.")
+    st.warning(f"⚠️ Missing columns: {', '.join(missing)} — rebuilding database...")
+    rebuild_database()
+    df, schema = load_database()
+
+if df is None or df.empty:
+    st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Filter valid coordinates
+# Drop empty GPS
 df = df.dropna(subset=["latitude", "longitude"])
 
-# Define color codes
+# Color function
 def status_color(status):
     if status == "Public":
         return [0, 200, 0]
@@ -54,7 +64,7 @@ def status_color(status):
 
 df["color"] = df["status"].apply(status_color)
 
-# Build map
+# Map layer
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
