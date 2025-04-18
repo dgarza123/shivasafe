@@ -6,7 +6,7 @@ import os
 import importlib.util
 
 st.set_page_config(page_title="Oʻahu Parcel Suppression Map", layout="wide")
-st.title("🗺️ TMK Suppression Map — Locked View")
+st.title("🗺️ Suppression Map — Oʻahu Focused")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -67,7 +67,7 @@ def status_color(status):
 
 df["color"] = df["status"].apply(status_color)
 
-# Map layer with large visible dots
+# Map layer with large dots
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
@@ -86,7 +86,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Locked flat 2D map centered on Oʻahu
+# Locked view on Oʻahu
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -95,12 +95,11 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
-# Render map with dragRotate disabled
+# Render map (no rotation, no 3D)
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/streets-v12",
     initial_view_state=view_state,
     layers=[scatter_layer],
     tooltip=tooltip,
-    controller=True,
-    parameters={"dragRotate": False}
+    controller=True  # Fully 2D, only pan and zoom allowed
 ))
