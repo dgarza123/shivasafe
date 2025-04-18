@@ -4,8 +4,8 @@ import sqlite3
 import pydeck as pdk
 import os
 
-st.set_page_config(page_title="Parcel Map Viewer", layout="wide")
-st.title("🗺️ Parcel Suppression Map")
+st.set_page_config(page_title="Parcel Suppression Map", layout="wide")
+st.title("🗺️ TMK Suppression Viewer")
 
 DB_PATH = "data/hawaii.db"
 if not os.path.exists(DB_PATH):
@@ -17,26 +17,26 @@ try:
     df = pd.read_sql_query("SELECT * FROM parcels", conn)
     conn.close()
 except Exception as e:
-    st.error(f"❌ Failed to load DB: {e}")
+    st.error(f"❌ Failed to load database: {e}")
     st.stop()
 
 if df.empty:
-    st.warning("No parcels found in database.")
+    st.warning("No parcels available.")
     st.stop()
 
-# Drop rows without coordinates
+# Filter valid coordinates
 df = df.dropna(subset=["latitude", "longitude"])
 
-# Status-based color
+# Define colors based on status
 def status_color(status):
     if status == "Public":
-        return [0, 200, 0]        # Green
+        return [0, 200, 0]
     elif status == "Disappeared":
-        return [255, 200, 0]      # Yellow
+        return [255, 200, 0]
     elif status == "Fabricated":
-        return [255, 0, 0]        # Red
+        return [255, 0, 0]
     else:
-        return [160, 160, 160]    # Gray fallback
+        return [160, 160, 160]
 
 df["color"] = df["status"].apply(status_color)
 
@@ -50,14 +50,12 @@ scatter_layer = pdk.Layer(
     pickable=True,
 )
 
-# Tooltip
+# Tooltip with core info only
 tooltip = {
     "html": """
-        <b>{certificate_id}</b><br/>
-        {parcel_id}<br/>
+        <b>{parcel_id}</b><br/>
         {status}<br/>
-        <i>{grantor}</i> → <b>{grantee}</b><br/>
-        {country}
+        <i>{grantor}</i> → <b>{grantee}</b>
     """,
     "style": {
         "backgroundColor": "black",
@@ -65,7 +63,7 @@ tooltip = {
     }
 }
 
-# Hawaii-focused view
+# Center on Hawaii
 view_state = pdk.ViewState(
     latitude=20.7967,
     longitude=-156.3319,
@@ -73,7 +71,7 @@ view_state = pdk.ViewState(
     pitch=30
 )
 
-# Show map
+# Render map
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/streets-v12",
     initial_view_state=view_state,
