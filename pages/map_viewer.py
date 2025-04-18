@@ -33,10 +33,8 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Initial DB load
+# Load DB
 df, schema = load_database()
-
-# Check schema
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
 
@@ -49,8 +47,13 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Drop empty GPS
+# Filter valid GPS
 df = df.dropna(subset=["latitude", "longitude"])
+
+# 🎯 Debug Info
+st.subheader("📋 Data Preview")
+st.write("✅ Parcel rows with GPS:", len(df))
+st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]])
 
 # Color function
 def status_color(status):
@@ -69,7 +72,7 @@ scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
     get_position='[longitude, latitude]',
-    get_radius=200,
+    get_radius=500,  # 🔍 Increased for visibility
     get_color="color",
     pickable=True,
 )
