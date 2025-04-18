@@ -7,3 +7,6 @@ google-auth
 google-auth-oauthlib
 plotly>=5.5.0
 chardet
+folium
+streamlit-folium
+
