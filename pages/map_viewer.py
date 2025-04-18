@@ -5,8 +5,8 @@ import pydeck as pdk
 import os
 import importlib.util
 
-st.set_page_config(page_title="Parcel Suppression Map", layout="wide")
-st.title("🗺️ TMK Suppression Map")
+st.set_page_config(page_title="TMK Suppression Map", layout="wide")
+st.title("🗺️ Suppression Map — TMK Visibility Forensics")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -33,7 +33,7 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Load DB
+# Load and verify
 df, schema = load_database()
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
@@ -47,15 +47,15 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Filter valid GPS
+# Drop invalid GPS
 df = df.dropna(subset=["latitude", "longitude"])
 
-# 🎯 Debug Info
-st.subheader("📋 Data Preview")
-st.write("✅ Parcel rows with GPS:", len(df))
+# 💬 Debug preview
+st.subheader("📋 Preview of Loaded Parcels")
+st.write("✅ Rows with GPS:", len(df))
 st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]])
 
-# Color function
+# Color logic
 def status_color(status):
     if status == "Public":
         return [0, 200, 0]
@@ -67,12 +67,12 @@ def status_color(status):
 
 df["color"] = df["status"].apply(status_color)
 
-# Map layer
+# Map layer with BIG dots
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
     get_position='[longitude, latitude]',
-    get_radius=500,  # 🔍 Increased for visibility
+    get_radius=1200,  # 🔎 Large dots for high visibility
     get_color="color",
     pickable=True,
 )
@@ -90,7 +90,8 @@ view_state = pdk.ViewState(
     latitude=20.7967,
     longitude=-156.3319,
     zoom=7.2,
-    pitch=30
+    pitch=0,  # ✅ Static top-down view
+    bearing=0
 )
 
 st.pydeck_chart(pdk.Deck(
