@@ -6,7 +6,7 @@ import os
 import importlib.util
 
 st.set_page_config(page_title="Oʻahu Parcel Suppression Map", layout="wide")
-st.title("🗺️ Suppression Map — Oʻahu View")
+st.title("🗺️ Suppression Map — Oʻahu Locked View")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -33,7 +33,7 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Load DB
+# Load and verify
 df, schema = load_database()
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
@@ -47,19 +47,19 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Filter valid GPS
+# Drop invalid GPS values
 df = df.dropna(subset=["latitude", "longitude"])
 df = df[df["latitude"].apply(lambda x: isinstance(x, (int, float)))]
 df = df[df["longitude"].apply(lambda x: isinstance(x, (int, float)))]
 
-if df.empty:
-    st.warning("⚠️ All rows were removed due to invalid or missing GPS coordinates.")
-    st.stop()
-
 # Debug preview
 st.subheader("📋 Loaded Parcel Data")
-st.write("✅ Parcel rows with valid GPS:", len(df))
-st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]])
+st.write("✅ Valid parcel rows to display:", len(df))
+st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]].head())
+
+if df.empty:
+    st.warning("⚠️ No usable GPS points found. Map will not render.")
+    st.stop()
 
 # Suppression color logic
 def status_color(status):
@@ -72,7 +72,10 @@ def status_color(status):
     return [160, 160, 160]
 
 df["color"] = df["status"].apply(status_color)
-df["color"] = df["color"].apply(lambda x: x if isinstance(x, list) and len(x) == 3 else [160, 160, 160])
+df["color"] = df["color"].apply(
+    lambda x: x if isinstance(x, list) and len(x) == 3 and all(isinstance(i, int) for i in x)
+    else [160, 160, 160]
+)
 
 # Scatterplot layer
 scatter_layer = pdk.Layer(
@@ -84,7 +87,6 @@ scatter_layer = pdk.Layer(
     pickable=True,
 )
 
-# Tooltip with entities and suppression status
 tooltip = {
     "html": """
         <b>{parcel_id}</b><br/>
@@ -94,7 +96,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Static 2D Oʻahu view
+# Locked 2D Oʻahu view
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -103,11 +105,14 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
-# Render map — no rotation, stable view
-st.pydeck_chart(pdk.Deck(
-    map_style="mapbox://styles/mapbox/streets-v12",
-    initial_view_state=view_state,
-    layers=[scatter_layer],
-    tooltip=tooltip,
-    controller=True  # Prevent tilt, enable zoom/pan only
-))
+# Final crash-proof map render
+try:
+    st.pydeck_chart(pdk.Deck(
+        map_style="mapbox://styles/mapbox/streets-v12",
+        initial_view_state=view_state,
+        layers=[scatter_layer],
+        tooltip=tooltip,
+        controller=True
+    ))
+except Exception as e:
+    st.error(f"❌ Map rendering failed: {e}")
