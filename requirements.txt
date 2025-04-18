@@ -10,3 +10,4 @@ chardet
 folium
 streamlit-folium
 Traceback
+pyproj
