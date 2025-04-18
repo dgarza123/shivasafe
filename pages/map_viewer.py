@@ -6,7 +6,7 @@ import os
 import importlib.util
 
 st.set_page_config(page_title="Oʻahu Parcel Suppression Map", layout="wide")
-st.title("🗺️ Suppression Map — Oʻahu Focused")
+st.title("🗺️ TMK Suppression Map — Locked View")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -51,7 +51,7 @@ if df is None or df.empty:
 df = df.dropna(subset=["latitude", "longitude"])
 
 # 💬 Debug preview
-st.subheader("📋 Preview of Loaded Parcels")
+st.subheader("📋 Loaded Parcels")
 st.write("✅ Rows with GPS:", len(df))
 st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]])
 
@@ -67,7 +67,7 @@ def status_color(status):
 
 df["color"] = df["status"].apply(status_color)
 
-# Map layer
+# Map layer with large visible dots
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
@@ -86,7 +86,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# 🔒 Locked view — Oʻahu, no pitch or bearing
+# Locked flat 2D map centered on Oʻahu
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -95,9 +95,12 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
+# Render map with dragRotate disabled
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/streets-v12",
     initial_view_state=view_state,
     layers=[scatter_layer],
-    tooltip=tooltip
+    tooltip=tooltip,
+    controller=True,
+    parameters={"dragRotate": False}
 ))
