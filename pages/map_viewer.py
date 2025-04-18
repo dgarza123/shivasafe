@@ -1,16 +1,15 @@
-# -------------------- pages/map_viewer.py --------------------
 import streamlit as st
-import os
 import pandas as pd
 import sqlite3
 import pydeck as pdk
+import os
 
 st.set_page_config(page_title="Parcel Map Viewer", layout="wide")
-st.title("Parcel Transfer Map")
+st.title("🗺️ Parcel Suppression Map")
 
 DB_PATH = "data/hawaii.db"
 if not os.path.exists(DB_PATH):
-    st.error("❌ hawaii.db missing in /data")
+    st.error("❌ hawaii.db not found.")
     st.stop()
 
 try:
@@ -18,34 +17,66 @@ try:
     df = pd.read_sql_query("SELECT * FROM parcels", conn)
     conn.close()
 except Exception as e:
-    st.error(f"❌ Failed to load database: {e}")
+    st.error(f"❌ Failed to load DB: {e}")
     st.stop()
 
 if df.empty:
     st.warning("No parcels found in database.")
     st.stop()
 
-view = pdk.ViewState(latitude=20.8, longitude=-157.5, zoom=6.3, pitch=30)
+# Drop rows without coordinates
+df = df.dropna(subset=["latitude", "longitude"])
 
-arc_layer = pdk.Layer(
-    "ArcLayer",
+# Status-based color
+def status_color(status):
+    if status == "Public":
+        return [0, 200, 0]        # Green
+    elif status == "Disappeared":
+        return [255, 200, 0]      # Yellow
+    elif status == "Fabricated":
+        return [255, 0, 0]        # Red
+    else:
+        return [160, 160, 160]    # Gray fallback
+
+df["color"] = df["status"].apply(status_color)
+
+# Map layer
+scatter_layer = pdk.Layer(
+    "ScatterplotLayer",
     data=df,
-    get_source_position='[longitude, latitude]',
-    get_target_position='[122.56, 11.6]',
-    get_source_color='[255, 0, 0]',
-    get_target_color='[255, 0, 0]',
-    get_width=2,
+    get_position='[longitude, latitude]',
+    get_radius=200,
+    get_color="color",
     pickable=True,
 )
 
+# Tooltip
 tooltip = {
-    "html": "<b>{certificate_id}</b><br />{parcel_id}<br />{grantee}<br />{amount}",
-    "style": {"backgroundColor": "black", "color": "white"}
+    "html": """
+        <b>{certificate_id}</b><br/>
+        {parcel_id}<br/>
+        {status}<br/>
+        <i>{grantor}</i> → <b>{grantee}</b><br/>
+        {country}
+    """,
+    "style": {
+        "backgroundColor": "black",
+        "color": "white"
+    }
 }
 
+# Hawaii-focused view
+view_state = pdk.ViewState(
+    latitude=20.7967,
+    longitude=-156.3319,
+    zoom=7.2,
+    pitch=30
+)
+
+# Show map
 st.pydeck_chart(pdk.Deck(
-    map_style="mapbox://styles/mapbox/light-v9",
-    initial_view_state=view,
-    layers=[arc_layer],
+    map_style="mapbox://styles/mapbox/streets-v12",
+    initial_view_state=view_state,
+    layers=[scatter_layer],
     tooltip=tooltip
 ))
