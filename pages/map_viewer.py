@@ -33,7 +33,7 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Load and verify
+# Load and validate DB
 df, schema = load_database()
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
@@ -47,21 +47,17 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Drop invalid GPS values
+# Sanitize GPS
 df = df.dropna(subset=["latitude", "longitude"])
 df = df[df["latitude"].apply(lambda x: isinstance(x, (int, float)))]
 df = df[df["longitude"].apply(lambda x: isinstance(x, (int, float)))]
 
-# Debug preview
-st.subheader("📋 Loaded Parcel Data")
-st.write("✅ Valid parcel rows to display:", len(df))
-st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]].head())
-
+# Early exit if nothing left
 if df.empty:
-    st.warning("⚠️ No usable GPS points found. Map will not render.")
+    st.warning("⚠️ No valid GPS rows to display.")
     st.stop()
 
-# Suppression color logic
+# Color mapping
 def status_color(status):
     if status == "Public":
         return [0, 200, 0]
@@ -77,7 +73,12 @@ df["color"] = df["color"].apply(
     else [160, 160, 160]
 )
 
-# Scatterplot layer
+# Debug view
+st.subheader("📋 Loaded Parcel Data")
+st.write("✅ Rows with valid GPS:", len(df))
+st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]].head())
+
+# Map layer
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
@@ -96,7 +97,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Locked 2D Oʻahu view
+# Locked, zoomed 2D view on Oʻahu
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -105,14 +106,13 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
-# Final crash-proof map render
+# Final map render (Streamlit-safe)
 try:
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=view_state,
         layers=[scatter_layer],
-        tooltip=tooltip,
-        controller=True
+        tooltip=tooltip
     ))
 except Exception as e:
     st.error(f"❌ Map rendering failed: {e}")
