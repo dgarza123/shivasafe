@@ -1,37 +1,57 @@
+# File: scripts/tmk_checker.py
+
 import os
 import csv
 
-PRIMARY_PATH = "data/Hawaii_tmk_master.csv"
-FALLBACK_PATH = "data/Hawaii.csv"
+# Try these paths in order until one exists:
+CANDIDATE_PATHS = [
+    "data/Hawaii_tmk_master.csv",
+    "data/Hawaii.csv",
+    "/mnt/data/Hawaii_tmk_master.csv",
+    "/mnt/data/Hawaii.csv",
+]
 
 def load_known_tmks():
     path = None
-    if os.path.exists(PRIMARY_PATH):
-        path = PRIMARY_PATH
-    elif os.path.exists(FALLBACK_PATH):
-        path = FALLBACK_PATH
-    else:
-        print(f"❌ TMK data not found. Expected one of:\n - {PRIMARY_PATH}\n - {FALLBACK_PATH}")
+    for p in CANDIDATE_PATHS:
+        if os.path.exists(p):
+            path = p
+            break
+
+    if not path:
+        print("❌ TMK reference not found. Looked for:")
+        for p in CANDIDATE_PATHS:
+            print("   -", p)
         return set()
 
     print(f"📄 Loaded TMK reference from: {path}")
-    known_tmks = set()
-    with open(path, "r", encoding="utf-8") as f:
+    known = set()
+    with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            # Try the common column names
             tmk = row.get("parcel_id") or row.get("TMK") or row.get("tmk")
             if tmk:
-                known_tmks.add(tmk.strip())
-    return known_tmks
+                known.add(str(tmk).strip())
+    return known
 
+# Build once at import
 KNOWN_TMK_SET = load_known_tmks()
 
 def get_parcel_status(parcel_id: str) -> str:
+    """
+    Classify a parcel_id into:
+      - 'Public' if it's in the known set
+      - 'Disappeared' if it's well-formed (length >=5) but not found
+      - 'Fabricated' otherwise
+    """
     if not parcel_id:
-        return "Unknown"
-    pid = parcel_id.strip()
+        return "Fabricated"
+    pid = str(parcel_id).strip()
     if pid in KNOWN_TMK_SET:
         return "Public"
+    # if it looks like a valid TMK but not in set
     if len(pid) >= 5:
         return "Disappeared"
-    return "Unknown"
+    # fallback for everything else
+    return "Fabricated"
