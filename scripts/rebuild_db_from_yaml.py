@@ -9,21 +9,16 @@ DB_PATH       = "data/hawaii.db"
 SOURCE_FOLDER = "evidence"
 TABLE_NAME    = "parcels"
 
-# Paths to try for TMK→GPS lookup
 MASTER_CSV_PATHS = [
     "data/Hawaii_tmk_master.csv",
     "data/Hawaii.csv"
 ]
 
 def load_master_coords():
-    """Load first valid CSV of parcel_id,latitude,longitude into a dict."""
     for path in MASTER_CSV_PATHS:
         if os.path.exists(path):
             df = pd.read_csv(path, dtype=str)
-            df.columns = [c.strip() for c in df.columns]
-            # Normalize columns
-            mapping = {c: c.strip().lower() for c in df.columns}
-            df = df.rename(columns=mapping)
+            df.columns = [c.strip().lower() for c in df.columns]
             if {"parcel_id","latitude","longitude"}.issubset(df.columns):
                 coords = {
                     row["parcel_id"].strip(): (
@@ -31,7 +26,7 @@ def load_master_coords():
                         float(row["longitude"])
                     )
                     for _, row in df.iterrows()
-                    if row["parcel_id"].strip()
+                    if str(row["parcel_id"]).strip()
                 }
                 print(f"ℹ️ Loaded {len(coords)} coords from {path}")
                 return coords
@@ -70,7 +65,7 @@ def create_table(conn):
 
 def parse_yaml(path):
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return yaml.safe_load(f)
 
 def build_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -88,6 +83,11 @@ def build_db():
                 continue
 
             data = parse_yaml(os.path.join(root, fname))
+            # skip YAMLs that root to a list or empty
+            if not isinstance(data, dict):
+                print(f"⚠️ Skipping non‑mapping YAML: {fname}")
+                continue
+
             cert = (
                 data.get("certificate_number")
                 or data.get("cert_id")
@@ -97,7 +97,13 @@ def build_db():
             sha = data.get("sha256", "")
             doc = data.get("document", "")
 
-            for tx in data.get("transactions", []):
+            txs = data.get("transactions", [])
+            # skip if transactions is not a list
+            if not isinstance(txs, list):
+                print(f"⚠️ Skipping `{fname}`: no transaction list")
+                continue
+
+            for tx in txs:
                 # 1) GPS: inline or master lookup
                 lat = lon = None
                 gps = tx.get("gps")
@@ -114,7 +120,7 @@ def build_db():
                 trueg  = re.get("true_grantees", [])  or []
                 inter  = re.get("intermediaries", []) or []
 
-                # 3) Insert row
+                # 3) Insert
                 conn.execute(f"""
                     INSERT INTO {TABLE_NAME} (
                         certificate_id, sha256, document, grantor, grantee,
