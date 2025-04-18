@@ -5,8 +5,8 @@ import pydeck as pdk
 import os
 import importlib.util
 
-st.set_page_config(page_title="TMK Suppression Map", layout="wide")
-st.title("🗺️ Suppression Map — TMK Visibility Forensics")
+st.set_page_config(page_title="Oʻahu Parcel Suppression Map", layout="wide")
+st.title("🗺️ Suppression Map — Oʻahu Focused")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -67,12 +67,12 @@ def status_color(status):
 
 df["color"] = df["status"].apply(status_color)
 
-# Map layer with BIG dots
+# Map layer
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
     get_position='[longitude, latitude]',
-    get_radius=1200,  # 🔎 Large dots for high visibility
+    get_radius=1200,
     get_color="color",
     pickable=True,
 )
@@ -86,11 +86,12 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
+# 🔒 Locked view — Oʻahu, no pitch or bearing
 view_state = pdk.ViewState(
-    latitude=20.7967,
-    longitude=-156.3319,
-    zoom=7.2,
-    pitch=0,  # ✅ Static top-down view
+    latitude=21.3049,
+    longitude=-157.8577,
+    zoom=11,
+    pitch=0,
     bearing=0
 )
 
