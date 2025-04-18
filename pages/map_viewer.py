@@ -6,7 +6,7 @@ import os
 import importlib.util
 
 st.set_page_config(page_title="Oʻahu Parcel Suppression Map", layout="wide")
-st.title("🗺️ Suppression Map — Oʻahu Focused")
+st.title("🗺️ Suppression Map — Oʻahu View")
 
 DB_PATH = "data/hawaii.db"
 REBUILD_SCRIPT = "scripts/rebuild_db_from_yaml.py"
@@ -33,7 +33,7 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Load and verify
+# Load DB
 df, schema = load_database()
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
@@ -47,15 +47,21 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Drop invalid GPS
+# Filter valid GPS
 df = df.dropna(subset=["latitude", "longitude"])
+df = df[df["latitude"].apply(lambda x: isinstance(x, (int, float)))]
+df = df[df["longitude"].apply(lambda x: isinstance(x, (int, float)))]
 
-# 💬 Debug preview
-st.subheader("📋 Loaded Parcels")
-st.write("✅ Rows with GPS:", len(df))
+if df.empty:
+    st.warning("⚠️ All rows were removed due to invalid or missing GPS coordinates.")
+    st.stop()
+
+# Debug preview
+st.subheader("📋 Loaded Parcel Data")
+st.write("✅ Parcel rows with valid GPS:", len(df))
 st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]])
 
-# Color logic
+# Suppression color logic
 def status_color(status):
     if status == "Public":
         return [0, 200, 0]
@@ -66,8 +72,9 @@ def status_color(status):
     return [160, 160, 160]
 
 df["color"] = df["status"].apply(status_color)
+df["color"] = df["color"].apply(lambda x: x if isinstance(x, list) and len(x) == 3 else [160, 160, 160])
 
-# Map layer with large dots
+# Scatterplot layer
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
@@ -77,6 +84,7 @@ scatter_layer = pdk.Layer(
     pickable=True,
 )
 
+# Tooltip with entities and suppression status
 tooltip = {
     "html": """
         <b>{parcel_id}</b><br/>
@@ -86,7 +94,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Locked view on Oʻahu
+# Static 2D Oʻahu view
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -95,11 +103,11 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
-# Render map (no rotation, no 3D)
+# Render map — no rotation, stable view
 st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/streets-v12",
     initial_view_state=view_state,
     layers=[scatter_layer],
     tooltip=tooltip,
-    controller=True  # Fully 2D, only pan and zoom allowed
+    controller=True  # Prevent tilt, enable zoom/pan only
 ))
