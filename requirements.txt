@@ -9,5 +9,4 @@ plotly>=5.5.0
 chardet
 folium
 streamlit-folium
-Traceback:
-pyproj
+Traceback
