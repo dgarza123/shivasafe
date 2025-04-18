@@ -33,7 +33,7 @@ def rebuild_database():
     inserted = module.build_db()
     st.info(f"🔁 Rebuilt hawaii.db with {inserted} rows")
 
-# Load and validate DB
+# Load DB
 df, schema = load_database()
 required_fields = ["latitude", "longitude", "parcel_id", "grantor", "grantee", "status"]
 missing = [f for f in required_fields if f not in schema]
@@ -47,15 +47,18 @@ if df is None or df.empty:
     st.error("❌ No data available after rebuild.")
     st.stop()
 
-# Sanitize GPS
+# Drop invalid GPS
 df = df.dropna(subset=["latitude", "longitude"])
 df = df[df["latitude"].apply(lambda x: isinstance(x, (int, float)))]
 df = df[df["longitude"].apply(lambda x: isinstance(x, (int, float)))]
 
-# Early exit if nothing left
 if df.empty:
-    st.warning("⚠️ No valid GPS rows to display.")
+    st.warning("⚠️ No valid GPS points found. Map will not render.")
     st.stop()
+
+# ⚠️ Show warning if GPS coverage is low
+if len(df) < 5:
+    st.warning(f"⚠️ Only {len(df)} GPS-tagged parcels found. Most YAMLs may be missing 'gps: [lat, lon]' values.")
 
 # Color mapping
 def status_color(status):
@@ -73,12 +76,12 @@ df["color"] = df["color"].apply(
     else [160, 160, 160]
 )
 
-# Debug view
+# Debug preview
 st.subheader("📋 Loaded Parcel Data")
 st.write("✅ Rows with valid GPS:", len(df))
 st.dataframe(df[["parcel_id", "latitude", "longitude", "grantor", "grantee", "status"]].head())
 
-# Map layer
+# Scatterplot layer
 scatter_layer = pdk.Layer(
     "ScatterplotLayer",
     data=df,
@@ -97,7 +100,7 @@ tooltip = {
     "style": {"backgroundColor": "black", "color": "white"}
 }
 
-# Locked, zoomed 2D view on Oʻahu
+# Locked view on Oʻahu
 view_state = pdk.ViewState(
     latitude=21.3049,
     longitude=-157.8577,
@@ -106,7 +109,7 @@ view_state = pdk.ViewState(
     bearing=0
 )
 
-# Final map render (Streamlit-safe)
+# Render map
 try:
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
