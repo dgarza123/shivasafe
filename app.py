@@ -1,35 +1,38 @@
-# -------------------------- app.py --------------------------
-import streamlit as st
+#!/usr/bin/env python3
+# app.py — entry point for Streamlit
+
 import os
-import zipfile
-from database_builder import build_database_from_zip
+import sys
 
-st.set_page_config("Upload & Build Hawaii DB", layout="centered")
-st.title("📦 Upload Parcel + YAML ZIP")
+# ─── 1) FORCE‑ADD YOUR ROOT & SUBDIRS TO PYTHONPATH ────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-uploaded_file = st.file_uploader("Upload a .zip file with YAML files", type="zip")
+# Add repo root
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-if uploaded_file:
-    db_path = "data/hawaii.db"
-    if os.path.exists(db_path):
-        os.remove(db_path)
-        st.warning("❌ Removed existing hawaii.db")
+# Add any subfolders you import from
+SUBDIRS = ["pages", "scripts", "upload"]
+for sub in SUBDIRS:
+    p = os.path.join(BASE_DIR, sub)
+    if os.path.isdir(p) and p not in sys.path:
+        sys.path.insert(0, p)
 
-    extract_path = "uploads/extracted"
-    os.makedirs(extract_path, exist_ok=True)
 
-    zip_path = os.path.join("uploads", uploaded_file.name)
-    with open(zip_path, "wb") as f:
-        f.write(uploaded_file.read())
-    st.success("✅ ZIP uploaded")
+# ─── 2) IMPORT STREAMLIT & YOUR PAGES ─────────────────────────────────────────────
+import streamlit as st
 
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_path)
-    st.info("📂 ZIP extracted to uploads/extracted")
+# ─── 3) UI & NAVIGATION ───────────────────────────────────────────────────────────
+st.set_page_config(page_title="ShivaSafe", layout="wide")
+st.sidebar.title("🔹 ShivaSafe")
+page = st.sidebar.selectbox("Go to", [
+    "Suppression Heatmap",
+    "TMK Checker",
+])
 
-    with st.spinner("🔧 Building database..."):
-        try:
-            count = build_database_from_zip(extract_path, db_path)
-            st.success(f"✅ Done. {count} transactions saved to {db_path}")
-        except Exception as e:
-            st.error(f"❌ Failed to build database: {e}")
+if page == "Suppression Heatmap":
+    import pages.map_viewer as mv
+    mv.run()
+elif page == "TMK Checker":
+    import pages.tmk_checker as tc
+    tc.run()
