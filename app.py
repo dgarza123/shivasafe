@@ -1,64 +1,75 @@
-import os
-import requests
+# app.py
 import sqlite3
+import pandas as pd
 import streamlit as st
+import folium
+from streamlit_folium import st_folium
 
-# ─────────────── CONFIG ───────────────
-# Your Drive “share” file ID:
-DRIVE_FILE_ID = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"
-# Where to save it locally:
-DB_DIR      = "data"
-DB_NAME     = "hawaii.db"
-DB_PATH     = os.path.join(DB_DIR, DB_NAME)
-# Direct‑download URL for Google Drive
-DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={DRIVE_FILE_ID}"
+@st.cache_resource
+def load_data(db_path: str, csv_path: str):
+    # 1) load parcels with lat/lon
+    conn = sqlite3.connect(db_path)
+    parcels = pd.read_sql_query(
+        "SELECT parcel_id, latitude, longitude FROM parcels",
+        conn,
+        dtype={"parcel_id": str}
+    )
+    # 2) load suppression status
+    status = pd.read_csv(csv_path, dtype={"parcel_id": str, "suppression_status": str})
+    conn.close()
+    # 3) join them
+    df = parcels.merge(status, on="parcel_id", how="left").fillna("unknown")
+    # cast lat/lon to floats
+    df["latitude"]  = df["latitude"].astype(float)
+    df["longitude"] = df["longitude"].astype(float)
+    return df
 
-# ─────────────── FETCH / CACHE ───────────────
-def fetch_remote_db():
-    os.makedirs(DB_DIR, exist_ok=True)
-    with st.spinner("📥 Downloading remote database…"):
-        r = requests.get(DOWNLOAD_URL, stream=True)
-        r.raise_for_status()
-        with open(DB_PATH, "wb") as f:
-            for chunk in r.iter_content(8_192):
-                f.write(chunk)
+def build_map(df: pd.DataFrame):
+    # center map on average coords
+    center = [df.latitude.mean(), df.longitude.mean()]
+    m = folium.Map(location=center, zoom_start=8, tiles="CartoDB positron")
+    # draw each parcel as a tiny circle colored by status
+    for _, row in df.iterrows():
+        color = {
+            "True":  "red",
+            "False": "blue"
+        }.get(row.suppression_status, "gray")
+        folium.CircleMarker(
+            location=(row.latitude, row.longitude),
+            radius=2,
+            color=color,
+            fill=True,
+            fill_opacity=0.7,
+        ).add_to(m)
+    # add a legend
+    legend_html = """
+     <div style="position: fixed; 
+                 bottom: 50px; left: 50px; width: 120px; height: 80px; 
+                 background: white; z-index:9999; padding: 10px; border:2px solid gray;">
+       <b>Suppression</b><br>
+       <i style="color:red;">●</i> suppressed<br>
+       <i style="color:blue;">●</i> not suppressed<br>
+       <i style="color:gray;">●</i> unknown
+     </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+    return m
 
-if not os.path.exists(DB_PATH):
-    fetch_remote_db()
+def main():
+    st.set_page_config(page_title="Hawaii TMK Map", layout="wide")
+    st.title("📍 Hawaii TMK Suppression Map")
 
-# ─────────────── CONNECT ───────────────
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-cur  = conn.cursor()
+    DB_PATH  = "data/hawaii.db"
+    CSV_PATH = "data/Hawaii_tmk_suppression_status.csv"
 
-# ─────────────── STREAMLIT SETUP ───────────────
-st.set_page_config(
-    page_title="ShivaSafe",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+    st.info(f"Loading data from `{DB_PATH}` and `{CSV_PATH}`…")
+    df = load_data(DB_PATH, CSV_PATH)
 
-# ─────────────── NAVIGATION ───────────────
-st.sidebar.title("🔎 Navigate")
-page = st.sidebar.radio("", [
-    "Map Viewer",
-    "Heat Map",
-    "Upload Evidence",
-    "Admin"
-])
+    st.write(f"Total parcels: **{len(df):,}**")
+    st.write("Red = suppressed; Blue = not suppressed; Gray = no data.")
 
-# ─────────────── ROUTING ───────────────
-if page == "Map Viewer":
-    import pages.map_viewer as mv
-    mv.show(cur)
+    m = build_map(df)
+    st_folium(m, width=900, height=600)
 
-elif page == "Heat Map":
-    import pages.heat_map as hm
-    hm.show(cur)
-
-elif page == "Upload Evidence":
-    import pages.evidence_uploader as eu
-    eu.show(cur)
-
-elif page == "Admin":
-    import pages.admin_dashboard as ad
-    ad.show(cur)
+if __name__ == "__main__":
+    main()
