@@ -1,4 +1,5 @@
 # app.py
+
 import os
 import sqlite3
 import pandas as pd
@@ -11,24 +12,24 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Your Drive file IDs
-DB_ID = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"  # SQLite DB
-SUP_ID = "1_Q3pT2sNF3nfCUzWyzBQF5u7lcy-q122"  # CSV
+DB_ID = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"      # SQLite DB
+SUP_ID = "1_Q3pT2sNF3nfCUzWyzBQF5u7lcy-q122"     # CSV
+
 DB_LOCAL = os.path.join(DATA_DIR, "hawaii.db")
 SUP_LOCAL = os.path.join(DATA_DIR, "suppression_status.csv")
 
 def download_if_missing(file_id: str, path: str, desc: str):
     if not os.path.exists(path) or os.path.getsize(path) < 10_000:
         st.info(f"⏬ Downloading {desc}…")
-        # direct by ID is more reliable for large files
         gdown.download(id=file_id, output=path, quiet=False)
 
 @st.cache_data(show_spinner=False)
 def load_master_with_status():
-    # 1) Ensure data files are present
+    # 1) Fetch both
     download_if_missing(DB_ID, DB_LOCAL, "SQLite DB")
     download_if_missing(SUP_ID, SUP_LOCAL, "suppression CSV")
 
-    # 2) Connect & list tables (for debugging)
+    # 2) Connect & (debug) list tables
     with sqlite3.connect(DB_LOCAL) as conn:
         try:
             tables = pd.read_sql(
@@ -37,9 +38,9 @@ def load_master_with_status():
             st.write("Tables in DB:", tables)
         except Exception as e:
             st.error(f"Failed to list tables: {e}")
-            return pd.DataFrame([], columns=["parcel_id", "lat", "lon", "status"])
+            return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
 
-        # 3) Read the master table
+        # 3) Read your master
         try:
             master = pd.read_sql(
                 """
@@ -53,20 +54,21 @@ def load_master_with_status():
             )
         except Exception as e:
             st.error(f"Error querying Hawaii_tmk_master: {e}")
-            return pd.DataFrame([], columns=["parcel_id", "lat", "lon", "status"])
+            return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
 
     # 4) Load CSV & normalize
     sup = pd.read_csv(SUP_LOCAL, dtype=str)
     cols = list(sup.columns)
     if len(cols) < 2:
         st.error("Suppression CSV needs at least two columns (parcel_id + status).")
-        return pd.DataFrame([], columns=["parcel_id", "lat", "lon", "status"])
+        return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
     sup = sup.rename(columns={cols[0]: "parcel_id", cols[1]: "status"})
     sup["status"] = sup["status"].fillna("unknown")
 
     # 5) Merge
-    df = master.merge(sup[["parcel_id", "status"]], on="parcel_id", how="left")
+    df = master.merge(sup[["parcel_id","status"]], on="parcel_id", how="left")
     df["status"] = df["status"].fillna("unknown")
+
     return df
 
 def main():
@@ -78,10 +80,9 @@ def main():
         st.warning("No data to display.")
         return
 
-    # 6) Build Folium map
+    # 6) Folium map
     m = folium.Map(location=[21.3069, -157.8583], zoom_start=10)
     colors = {"suppressed": "red", "active": "green", "unknown": "gray"}
-
     for _, r in df.iterrows():
         if pd.isna(r.lat) or pd.isna(r.lon):
             continue
