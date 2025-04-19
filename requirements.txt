@@ -2,6 +2,7 @@ streamlit>=1.25.0
 pydeck
 pandas
 PyYAML>=6.0
+gdown
 google-api-python-client
 google-auth
 google-auth-oauthlib
