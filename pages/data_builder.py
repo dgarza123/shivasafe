@@ -1,135 +1,176 @@
 # pages/data_builder.py
-
 import streamlit as st
-import pandas as pd
+import sqlite3
 import yaml
-import zipfile
-import io
-import re
+from pathlib import Path
+import pandas as pd
 
-st.set_page_config(page_title="Data Builder", layout="wide")
-st.title("🛠️ Data Builder")
+# -------------------------------------------------------------------
+# CONFIGURATION
+# -------------------------------------------------------------------
+DB_PATH      = Path("data/hawaii.db")
+EVIDENCE_DIR = Path("evidence")
+DATA_DIR     = Path("data")
 
-st.markdown("""
-Upload your evidence YAMLs (as a ZIP), the master TMK CSV, and your historical year CSVs below.  
-Then hit **Download** to get your suppression status and GPS patches.
-""")
+# -------------------------------------------------------------------
+# SCHEMA BUILDERS
+# -------------------------------------------------------------------
+def build_parcels_table(cur):
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS parcels (
+      parcel_id TEXT PRIMARY KEY
+    )
+    """)
 
-yaml_zip = st.file_uploader("1) Upload evidence YAMLs (ZIP)", type="zip")
-master_csv = st.file_uploader("2) Upload master TMK CSV", type="csv")
-year_files = st.file_uploader(
-    "3) Upload historical year CSVs (e.g. Hawaii2020.csv, Hawaii2021.csv…)",
-    type="csv", accept_multiple_files=True
-)
+def build_evidence_table(cur):
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS evidence (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      parcel_id        TEXT,
+      grantor          TEXT,
+      grantee          TEXT,
+      amount           TEXT,
+      registry_key     TEXT,
+      escrow_id        TEXT,
+      transfer_bank    TEXT,
+      country          TEXT,
+      routing_code     TEXT,
+      account_fragment TEXT,
+      link             TEXT,
+      method           TEXT,
+      signing_date     TEXT,
+      latitude         REAL,
+      longitude        REAL,
+      yaml_file        TEXT,
+      FOREIGN KEY(parcel_id) REFERENCES parcels(parcel_id)
+    )
+    """)
 
-if yaml_zip and master_csv and year_files:
-    st.info("⏳ Processing…")
+def build_year_status_table(cur):
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS year_status (
+      parcel_id TEXT,
+      year      INTEGER,
+      status    TEXT,
+      PRIMARY KEY(parcel_id, year),
+      FOREIGN KEY(parcel_id) REFERENCES parcels(parcel_id)
+    )
+    """)
 
-    # 1) load all YAML docs from the ZIP, using safe_load_all and only keep dicts
-    docs = []
-    with zipfile.ZipFile(yaml_zip) as zf:
-        yaml_names = [n for n in zf.namelist() if n.lower().endswith((".yaml", ".yml"))]
-        for name in yaml_names:
-            with zf.open(name) as f:
-                text = f.read().decode("utf-8")
-                for obj in yaml.safe_load_all(text):
-                    if isinstance(obj, dict):
-                        docs.append(obj)
+# -------------------------------------------------------------------
+# DATA INGESTION
+# -------------------------------------------------------------------
+def ingest_yamls(cur):
+    yaml_files = sorted(EVIDENCE_DIR.glob("*.yaml"))
+    for path in yaml_files:
+        with open(path, "r") as f:
+            docs = yaml.safe_load_all(f)
+            for doc in docs:
+                # support both dict‐wrapped and list‐only yamls
+                if isinstance(doc, dict):
+                    txs = doc.get("transactions", [])
+                elif isinstance(doc, list):
+                    txs = doc
+                else:
+                    continue
 
-    # 2) load master TMKs
-    master_df = pd.read_csv(master_csv, dtype=str)
-    master_ids = set(master_df.iloc[:, 0].astype(str))
+                for tx in txs:
+                    pid = tx.get("parcel_id")
+                    if not pid:
+                        continue
+                    pid = str(pid)
 
-    # 3) build year‑by‑year sets of TMKs
-    year_sets = {}
-    for yf in year_files:
-        df = pd.read_csv(yf, dtype=str)
-        # auto‑detect parcel_id column
-        for cand in ("parcel_id", "cty_tmk", "TMK", "TMK_txt"):
-            if cand in df.columns:
-                pid_col = cand
-                break
-        else:
-            st.error(f"❌ {yf.name!r} missing parcel‑ID column (tried {cand})")
+                    # 1) ensure parcel row exists
+                    cur.execute(
+                        "INSERT OR IGNORE INTO parcels(parcel_id) VALUES (?)",
+                        (pid,)
+                    )
+
+                    # 2) extract all fields
+                    lat = lon = None
+                    gps = tx.get("gps")
+                    if isinstance(gps, (list, tuple)) and len(gps) >= 2:
+                        lat, lon = gps[0], gps[1]
+
+                    cur.execute("""
+                        INSERT OR IGNORE INTO evidence (
+                          parcel_id, grantor, grantee, amount,
+                          registry_key, escrow_id, transfer_bank,
+                          country, routing_code, account_fragment,
+                          link, method, signing_date,
+                          latitude, longitude, yaml_file
+                        ) VALUES (
+                          ?,?,?,?,?,?,?,?,?,?,
+                          ?,?,?,?,?,?
+                        )
+                    """, (
+                        pid,
+                        tx.get("grantor"),
+                        tx.get("grantee"),
+                        tx.get("amount"),
+                        tx.get("registry_key"),
+                        tx.get("escrow_id"),
+                        tx.get("transfer_bank"),
+                        tx.get("country"),
+                        tx.get("routing_code"),
+                        tx.get("account_fragment"),
+                        tx.get("link"),
+                        tx.get("method"),
+                        tx.get("signing_date"),
+                        lat,
+                        lon,
+                        path.name
+                    ))
+
+def ingest_csvs(cur):
+    csv_files = sorted(DATA_DIR.glob("Hawaii*.csv"))
+    for path in csv_files:
+        # infer year from filename, e.g. "Hawaii2020.csv"
+        try:
+            year = int(path.stem.replace("Hawaii", ""))
+        except ValueError:
+            st.warning(f"Skipping {path.name}: can't infer year")
             continue
 
-        # extract year from filename
-        m = re.search(r"(\d{4})", yf.name)
-        year = m.group(1) if m else yf.name.rsplit(".", 1)[0]
-        year_sets[year] = set(df[pid_col].astype(str))
+        df = pd.read_csv(path, dtype=str)
+        if "parcel_id" not in df.columns:
+            st.warning(f"Skipping {path.name}: no parcel_id column")
+            continue
 
-    if not year_sets:
-        st.error("No valid year files ingested.")
-        st.stop()
+        for pid in df["parcel_id"].astype(str).unique():
+            # mark parcel present that year
+            cur.execute(
+                "INSERT OR IGNORE INTO parcels(parcel_id) VALUES (?)",
+                (pid,)
+            )
+            cur.execute("""
+                INSERT OR REPLACE INTO year_status(parcel_id, year, status)
+                VALUES (?, ?, ?)
+            """, (pid, year, "present"))
 
-    latest = max(year_sets.keys(), key=lambda y: int(y))
+# -------------------------------------------------------------------
+# MAIN STREAMLIT PAGE
+# -------------------------------------------------------------------
+def main():
+    st.title("🔄 Data Builder")
+    st.write("This page ingests all YAML and CSV data into `data/hawaii.db`.")
 
-    # 4) classify each master TMK
-    rows = []
-    for pid in sorted(master_ids):
-        in_latest = pid in year_sets[latest]
-        ever = any(pid in s for s in year_sets.values())
-        if in_latest and ever:
-            cls = "Still Public"
-        elif ever and not in_latest:
-            cls = "Suppressed After Use"
-        else:
-            cls = "Vanished After Use"
-        rows.append({"parcel_id": pid, "classification": cls})
-    sup_df = pd.DataFrame(rows)
+    if st.button("Rebuild Database"):
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
 
-    # 5) mark fabricated (YAML‑only) parcels
-    yaml_ids = {
-        str(tx.get("parcel_id"))
-        for doc in docs
-        for tx in (doc.get("transactions") or [])
-        if isinstance(tx, dict) and tx.get("parcel_id") is not None
-    }
-    fabricated = yaml_ids - master_ids
-    sup_df.loc[sup_df["parcel_id"].isin(fabricated), "classification"] = "Fabricated / Never Listed"
+        # 1) Create tables
+        build_parcels_table(cur)
+        build_evidence_table(cur)
+        build_year_status_table(cur)
 
-    # 6) extract GPS from YAMLs
-    gps_rows = []
-    for doc in docs:
-        for tx in (doc.get("transactions") or []):
-            if not isinstance(tx, dict):
-                continue
-            pid = str(tx.get("parcel_id"))
-            gps = tx.get("gps")
-            if isinstance(gps, list) and len(gps) == 2:
-                gps_rows.append({
-                    "parcel_id": pid,
-                    "latitude": gps[0],
-                    "longitude": gps[1]
-                })
-    gps_df = pd.DataFrame(gps_rows).drop_duplicates()
+        # 2) Ingest data
+        ingest_yamls(cur)
+        ingest_csvs(cur)
 
-    # 7) find master TMKs missing GPS
-    missing = pd.DataFrame(
-        [{"parcel_id": pid} for pid in master_ids if pid not in gps_df["parcel_id"].values]
-    )
+        conn.commit()
+        conn.close()
+        st.success("✅ Database rebuilt successfully!")
 
-    # 8) download buttons
-    st.success("✅ Done!")
-    c1, c2, c3 = st.columns(3)
-    c1.download_button(
-        "📥 Download suppression CSV",
-        sup_df.to_csv(index=False).encode("utf-8"),
-        "Hawaii_tmk_suppression_status.csv",
-        mime="text/csv",
-    )
-    c2.download_button(
-        "📥 Download GPS patch CSV",
-        gps_df.to_csv(index=False).encode("utf-8"),
-        "gps_patch.csv",
-        mime="text/csv",
-    )
-    c3.download_button(
-        f"📥 Download missing GPS ({len(missing)})",
-        missing.to_csv(index=False).encode("utf-8"),
-        "missing_gps.csv",
-        mime="text/csv",
-    )
-
-else:
-    st.warning("Please upload all three inputs to build your data.")
+if __name__ == "__main__":
+    main()
