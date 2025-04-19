@@ -1,38 +1,45 @@
-#!/usr/bin/env python3
-# app.py — entry point for Streamlit
-
 import os
 import sys
 
-# ─── 1) FORCE‑ADD YOUR ROOT & SUBDIRS TO PYTHONPATH ────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Add repo root
+# make sure the repo root is on sys.path so
+# `import database_builder` always works
+BASE_DIR = os.path.dirname(__file__)
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Add any subfolders you import from
-SUBDIRS = ["pages", "scripts", "upload"]
-for sub in SUBDIRS:
-    p = os.path.join(BASE_DIR, sub)
-    if os.path.isdir(p) and p not in sys.path:
-        sys.path.insert(0, p)
-
-
-# ─── 2) IMPORT STREAMLIT & YOUR PAGES ─────────────────────────────────────────────
 import streamlit as st
+from database_builder import build_database_from_zip
 
-# ─── 3) UI & NAVIGATION ───────────────────────────────────────────────────────────
-st.set_page_config(page_title="ShivaSafe", layout="wide")
-st.sidebar.title("🔹 ShivaSafe")
-page = st.sidebar.selectbox("Go to", [
-    "Suppression Heatmap",
+# ---- on first run, (re)build your SQLite DB if missing ----
+DB_PATH = os.path.join("data", "hawaii.db")
+if not os.path.exists(DB_PATH):
+    st.sidebar.info("⏳ Building database…")
+    # adjust these arguments to your zip / output path
+    build_database_from_zip("evidence/yaml_zips.zip", DB_PATH)
+    st.sidebar.success("✅ Database ready")
+
+# ---- sidebar navigation ----
+st.sidebar.title("📑 Pages")
+page = st.sidebar.radio("", [
+    "Home",
+    "Upload Evidence",
+    "Map Viewer",
     "TMK Checker",
 ])
 
-if page == "Suppression Heatmap":
-    import pages.map_viewer as mv
-    mv.run()
+# ---- page dispatcher ----
+if page == "Home":
+    st.title("🏠 Welcome to Shivasafe")
+    st.write("Use the sidebar to pick a page.")
+
+elif page == "Upload Evidence":
+    from pages.evidence_uploader import run as run_uploader
+    run_uploader()
+
+elif page == "Map Viewer":
+    from pages.map_viewer import run as run_map
+    run_map()
+
 elif page == "TMK Checker":
-    import pages.tmk_checker as tc
-    tc.run()
+    from pages.tmk_checker import run as run_checker
+    run_checker()
