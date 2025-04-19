@@ -1,26 +1,95 @@
-# app.py
+# database_builder.py
 import os
-import sys
-
-# ensure our root folder is on the import path
-BASE_DIR = os.path.dirname(__file__)
-sys.path.insert(0, BASE_DIR)
-
-import streamlit as st
-from database_builder import build_database_from_zip
-
-# paths
-DB_PATH  = os.path.join("data", "hawaii.db")
-ZIP_PATH = os.path.join("data", "hawaii_bundle.zip")  # put your zip here
-
-# on first run, build DB if missing
-if not os.path.exists(DB_PATH):
-    st.info("Building local SQLite database…")
-    build_database_from_zip(ZIP_PATH, DB_PATH)
-    st.success("Database ready!")
-
-# now connect and use DB…
+import zipfile
 import sqlite3
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-# … the rest of your Streamlit UI goes here …
-st.write("🎉 Your app is up and running with a fresh database!")
+import yaml
+import pandas as pd
+
+def build_database_from_zip(zip_path: str, out_db: str):
+    """
+    Unzip a bundle of yamls + csvs, ingest into a fresh SQLite DB at out_db.
+    Expects:
+      - zip contains a folder "yamls/" with your *_entities.yaml files
+      - zip contains a folder "csvs/" with CSVs that have parcel_id, latitude, longitude
+    """
+
+    # ensure output directory exists
+    os.makedirs(os.path.dirname(out_db), exist_ok=True)
+
+    # prepare a temp extraction folder
+    tmpdir = os.path.join(os.path.dirname(out_db), "tmp_extract")
+    if os.path.exists(tmpdir):
+        for f in os.listdir(tmpdir):
+            os.remove(os.path.join(tmpdir, f))
+    else:
+        os.makedirs(tmpdir)
+
+    # extract zip
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(tmpdir)
+
+    # open SQLite
+    conn = sqlite3.connect(out_db)
+    cur = conn.cursor()
+
+    # create tables
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS parcels (
+      parcel_id TEXT PRIMARY KEY,
+      latitude REAL,
+      longitude REAL,
+      status TEXT
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+      certificate_number TEXT,
+      grantor TEXT,
+      grantee TEXT,
+      parcel_id TEXT,
+      signing_date TEXT,
+      FOREIGN KEY(parcel_id) REFERENCES parcels(parcel_id)
+    );
+    """)
+
+    # ingest YAMLs
+    yaml_dir = os.path.join(tmpdir, "yamls")
+    if os.path.isdir(yaml_dir):
+        for fname in os.listdir(yaml_dir):
+            if fname.lower().endswith((".yaml", ".yml")):
+                path = os.path.join(yaml_dir, fname)
+                with open(path, "r") as f:
+                    doc = yaml.safe_load(f)
+                cert = doc.get("certificate_number")
+                for tx in doc.get("transactions", []):
+                    cur.execute(
+                        "INSERT OR IGNORE INTO transactions VALUES (?,?,?,?,?);",
+                        (
+                            cert,
+                            tx.get("grantor"),
+                            tx.get("grantee"),
+                            tx.get("parcel_id"),
+                            tx.get("signing_date"),
+                        )
+                    )
+
+    # ingest CSVs
+    csv_dir = os.path.join(tmpdir, "csvs")
+    if os.path.isdir(csv_dir):
+        for fname in os.listdir(csv_dir):
+            if fname.lower().endswith(".csv"):
+                df = pd.read_csv(os.path.join(csv_dir, fname), dtype=str)
+                if {"parcel_id", "latitude", "longitude"}.issubset(df.columns):
+                    for _, r in df.iterrows():
+                        cur.execute(
+                            "INSERT OR REPLACE INTO parcels VALUES (?,?,?,NULL);",
+                            (
+                                r["parcel_id"],
+                                float(r["latitude"]),
+                                float(r["longitude"]),
+                            )
+                        )
+
+    # commit & close
+    conn.commit()
+    conn.close()
