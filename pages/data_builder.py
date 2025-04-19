@@ -1,20 +1,21 @@
 # pages/data_builder.py
+
 import streamlit as st
 import sqlite3
 import yaml
 from pathlib import Path
 import pandas as pd
 
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # CONFIGURATION
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 DB_PATH      = Path("data/hawaii.db")
 EVIDENCE_DIR = Path("evidence")
 DATA_DIR     = Path("data")
 
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # SCHEMA BUILDERS
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 def build_parcels_table(cur):
     cur.execute("""
     CREATE TABLE IF NOT EXISTS parcels (
@@ -57,22 +58,19 @@ def build_year_status_table(cur):
     )
     """)
 
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # DATA INGESTION
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 def ingest_yamls(cur):
-    yaml_files = sorted(EVIDENCE_DIR.glob("*.yaml"))
-    for path in yaml_files:
+    for path in sorted(EVIDENCE_DIR.glob("*.yaml")):
         with open(path, "r") as f:
-            docs = yaml.safe_load_all(f)
-            for doc in docs:
-                # support both dict‐wrapped and list‐only yamls
+            for doc in yaml.safe_load_all(f):
+                # handle both { … transactions: […] } and bare [ … ] formats
+                txs = []
                 if isinstance(doc, dict):
                     txs = doc.get("transactions", [])
                 elif isinstance(doc, list):
                     txs = doc
-                else:
-                    continue
 
                 for tx in txs:
                     pid = tx.get("parcel_id")
@@ -80,18 +78,19 @@ def ingest_yamls(cur):
                         continue
                     pid = str(pid)
 
-                    # 1) ensure parcel row exists
+                    # ensure parcel exists
                     cur.execute(
                         "INSERT OR IGNORE INTO parcels(parcel_id) VALUES (?)",
                         (pid,)
                     )
 
-                    # 2) extract all fields
+                    # extract gps if present
                     lat = lon = None
                     gps = tx.get("gps")
                     if isinstance(gps, (list, tuple)) and len(gps) >= 2:
                         lat, lon = gps[0], gps[1]
 
+                    # insert evidence (now 16 placeholders for 16 columns)
                     cur.execute("""
                         INSERT OR IGNORE INTO evidence (
                           parcel_id, grantor, grantee, amount,
@@ -100,8 +99,7 @@ def ingest_yamls(cur):
                           link, method, signing_date,
                           latitude, longitude, yaml_file
                         ) VALUES (
-                          ?,?,?,?,?,?,?,?,?,?,
-                          ?,?,?,?,?,?
+                          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                         )
                     """, (
                         pid,
@@ -123,8 +121,7 @@ def ingest_yamls(cur):
                     ))
 
 def ingest_csvs(cur):
-    csv_files = sorted(DATA_DIR.glob("Hawaii*.csv"))
-    for path in csv_files:
+    for path in sorted(DATA_DIR.glob("Hawaii*.csv")):
         # infer year from filename, e.g. "Hawaii2020.csv"
         try:
             year = int(path.stem.replace("Hawaii", ""))
@@ -138,7 +135,6 @@ def ingest_csvs(cur):
             continue
 
         for pid in df["parcel_id"].astype(str).unique():
-            # mark parcel present that year
             cur.execute(
                 "INSERT OR IGNORE INTO parcels(parcel_id) VALUES (?)",
                 (pid,)
@@ -148,29 +144,27 @@ def ingest_csvs(cur):
                 VALUES (?, ?, ?)
             """, (pid, year, "present"))
 
-# -------------------------------------------------------------------
-# MAIN STREAMLIT PAGE
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# STREAMLIT PAGE
+# -----------------------------------------------------------------------------
 def main():
     st.title("🔄 Data Builder")
-    st.write("This page ingests all YAML and CSV data into `data/hawaii.db`.")
+    st.write("Ingest all YAML & CSV into `data/hawaii.db`.")
 
     if st.button("Rebuild Database"):
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
 
-        # 1) Create tables
         build_parcels_table(cur)
         build_evidence_table(cur)
         build_year_status_table(cur)
 
-        # 2) Ingest data
         ingest_yamls(cur)
         ingest_csvs(cur)
 
         conn.commit()
         conn.close()
-        st.success("✅ Database rebuilt successfully!")
+        st.success("✅ Database rebuilt!")
 
 if __name__ == "__main__":
     main()
