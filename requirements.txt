@@ -10,3 +10,4 @@ chardet
 folium
 streamlit-folium>=0.24.1
 rich>=10.14.0
+pyproj
