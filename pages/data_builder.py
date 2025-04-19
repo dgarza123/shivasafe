@@ -25,34 +25,37 @@ year_files = st.file_uploader(
 if yaml_zip and master_csv and year_files:
     st.info("⏳ Processing…")
 
-    # 1) load all YAML docs from the ZIP
+    # 1) load all YAML docs from the ZIP, using safe_load_all and only keep dicts
+    docs = []
     with zipfile.ZipFile(yaml_zip) as zf:
-        yaml_names = [n for n in zf.namelist() if n.lower().endswith((".yaml",".yml"))]
-        docs = []
+        yaml_names = [n for n in zf.namelist() if n.lower().endswith((".yaml", ".yml"))]
         for name in yaml_names:
             with zf.open(name) as f:
-                docs.append(yaml.safe_load(f))
+                text = f.read().decode("utf-8")
+                for obj in yaml.safe_load_all(text):
+                    if isinstance(obj, dict):
+                        docs.append(obj)
 
     # 2) load master TMKs
     master_df = pd.read_csv(master_csv, dtype=str)
-    master_ids = set(master_df.iloc[:,0].astype(str))
+    master_ids = set(master_df.iloc[:, 0].astype(str))
 
     # 3) build year‑by‑year sets of TMKs
     year_sets = {}
     for yf in year_files:
         df = pd.read_csv(yf, dtype=str)
-        # detect the right column name for parcel_id
-        for cand in ("parcel_id","cty_tmk","TMK","TMK_txt"):
+        # auto‑detect parcel_id column
+        for cand in ("parcel_id", "cty_tmk", "TMK", "TMK_txt"):
             if cand in df.columns:
                 pid_col = cand
                 break
         else:
-            st.error(f"❌ {yf.name!r} has no parcel‑ID column (tried parcel_id, cty_tmk, TMK, TMK_txt)")
+            st.error(f"❌ {yf.name!r} missing parcel‑ID column (tried {cand})")
             continue
 
-        # extract a 4‑digit year from the filename, or fallback
+        # extract year from filename
         m = re.search(r"(\d{4})", yf.name)
-        year = m.group(1) if m else yf.name.rsplit(".",1)[0]
+        year = m.group(1) if m else yf.name.rsplit(".", 1)[0]
         year_sets[year] = set(df[pid_col].astype(str))
 
     if not year_sets:
@@ -73,23 +76,24 @@ if yaml_zip and master_csv and year_files:
         else:
             cls = "Vanished After Use"
         rows.append({"parcel_id": pid, "classification": cls})
-
     sup_df = pd.DataFrame(rows)
 
-    # 5) mark fabricated: any YAML‑only IDs
-    yaml_only = {
+    # 5) mark fabricated (YAML‑only) parcels
+    yaml_ids = {
         str(tx.get("parcel_id"))
         for doc in docs
-        for tx in doc.get("transactions", [])
-        if tx.get("parcel_id") is not None
-    } - master_ids
-
-    sup_df.loc[sup_df["parcel_id"].isin(yaml_only), "classification"] = "Fabricated / Never Listed"
+        for tx in (doc.get("transactions") or [])
+        if isinstance(tx, dict) and tx.get("parcel_id") is not None
+    }
+    fabricated = yaml_ids - master_ids
+    sup_df.loc[sup_df["parcel_id"].isin(fabricated), "classification"] = "Fabricated / Never Listed"
 
     # 6) extract GPS from YAMLs
     gps_rows = []
     for doc in docs:
-        for tx in doc.get("transactions", []):
+        for tx in (doc.get("transactions") or []):
+            if not isinstance(tx, dict):
+                continue
             pid = str(tx.get("parcel_id"))
             gps = tx.get("gps")
             if isinstance(gps, list) and len(gps) == 2:
@@ -98,40 +102,34 @@ if yaml_zip and master_csv and year_files:
                     "latitude": gps[0],
                     "longitude": gps[1]
                 })
-
     gps_df = pd.DataFrame(gps_rows).drop_duplicates()
 
-    # 7) find which master TMKs are missing GPS
+    # 7) find master TMKs missing GPS
     missing = pd.DataFrame(
         [{"parcel_id": pid} for pid in master_ids if pid not in gps_df["parcel_id"].values]
     )
 
-    # 8) provide download buttons
+    # 8) download buttons
     st.success("✅ Done!")
     c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.download_button(
-            "📥 Download suppression CSV",
-            sup_df.to_csv(index=False).encode("utf-8"),
-            "Hawaii_tmk_suppression_status.csv",
-            mime="text/csv"
-        )
-    with c2:
-        st.download_button(
-            "📥 Download GPS patch CSV",
-            gps_df.to_csv(index=False).encode("utf-8"),
-            "gps_patch.csv",
-            mime="text/csv"
-        )
-    with c3:
-        st.download_button(
-            f"📥 Download missing GPS ({len(missing)})",
-            missing.to_csv(index=False).encode("utf-8"),
-            "missing_gps.csv",
-            mime="text/csv"
-        )
+    c1.download_button(
+        "📥 Download suppression CSV",
+        sup_df.to_csv(index=False).encode("utf-8"),
+        "Hawaii_tmk_suppression_status.csv",
+        mime="text/csv",
+    )
+    c2.download_button(
+        "📥 Download GPS patch CSV",
+        gps_df.to_csv(index=False).encode("utf-8"),
+        "gps_patch.csv",
+        mime="text/csv",
+    )
+    c3.download_button(
+        f"📥 Download missing GPS ({len(missing)})",
+        missing.to_csv(index=False).encode("utf-8"),
+        "missing_gps.csv",
+        mime="text/csv",
+    )
 
 else:
     st.warning("Please upload all three inputs to build your data.")
-
