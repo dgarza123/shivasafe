@@ -1,83 +1,47 @@
-# app.py
+import os
 import sqlite3
 import pandas as pd
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
+import gdown
+
+# — Google Drive file IDs —
+DB_ID   = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"
+SUP_ID  = "1_Q3pT2sNF3nfCUzWyzBQF5u7lcy-q122"
+
+# — construct direct‑download URLs —
+DB_URL  = f"https://drive.google.com/uc?export=download&id={DB_ID}"
+SUP_URL = f"https://drive.google.com/uc?export=download&id={SUP_ID}"
+
+# — local cache paths —
+os.makedirs("data", exist_ok=True)
+DB_LOCAL  = "data/hawaii.db"
+SUP_LOCAL = "data/suppression_status.csv"
 
 @st.cache_resource
-def load_data(db_path: str, csv_path: str):
-    conn = sqlite3.connect(db_path)
-    parcels = pd.read_sql_query(
-        "SELECT parcel_id, latitude, longitude FROM parcels",
-        conn,
-        dtype={"parcel_id": str}
-    )
-    status = pd.read_csv(csv_path, dtype={"parcel_id": str, "suppression_status": str})
-    conn.close()
-    df = parcels.merge(status, on="parcel_id", how="left").fillna("unknown")
-    df["latitude"]  = df["latitude"].astype(float)
-    df["longitude"] = df["longitude"].astype(float)
-    return df
+def get_connection():
+    if not os.path.exists(DB_LOCAL):
+        gdown.download(DB_URL, DB_LOCAL, quiet=False)
+    # open read‑only
+    return sqlite3.connect(f"file:{DB_LOCAL}?mode=ro", uri=True)
 
-def build_map(df: pd.DataFrame):
-    # Center on the mean location
-    center = [df.latitude.mean(), df.longitude.mean()]
-    m = folium.Map(location=center, zoom_start=8, tiles="CartoDB positron")
+@st.cache_data
+def load_suppression_csv():
+    if not os.path.exists(SUP_LOCAL):
+        gdown.download(SUP_URL, SUP_LOCAL, quiet=False)
+    return pd.read_csv(SUP_LOCAL, dtype=str)
 
-    # Plot each point
-    for _, row in df.iterrows():
-        color = {
-            "True":  "red",
-            "False": "blue"
-        }.get(row.suppression_status, "gray")
-        folium.CircleMarker(
-            location=(row.latitude, row.longitude),
-            radius=2,
-            color=color,
-            fill=True,
-            fill_opacity=0.7,
-        ).add_to(m)
+# ---- in your main Streamlit script ----
 
-    # Legend HTML — all of this is inside a single triple‑quoted string
-    legend_html = """
-<div style="
-    position: fixed;
-    bottom: 50px;
-    left: 50px;
-    width: 140px;
-    height: 100px;
-    background-color: white;
-    border: 2px solid gray;
-    z-index: 9999;
-    padding: 8px;
-    font-size: 12px;
-">
-  <b>Suppression</b><br>
-  <span style="color:red;">●</span> suppressed<br>
-  <span style="color:blue;">●</span> not suppressed<br>
-  <span style="color:gray;">●</span> unknown
-</div>
-"""
-    # Attach the legend
-    m.get_root().html.add_child(folium.Element(legend_html))
-    return m
+# 1) grab your DB
+conn = get_connection()
+cur  = conn.cursor()
 
-def main():
-    st.set_page_config(page_title="Hawaii TMK Map", layout="wide")
-    st.title("📍 Hawaii TMK Suppression Map")
+# 2) grab your suppression table
+sup_df = load_suppression_csv()
 
-    DB_PATH  = "data/hawaii.db"
-    CSV_PATH = "data/Hawaii_tmk_suppression_status.csv"
+# 3) (optional) write it into your DB connection so queries can join on it
+sup_df.to_sql("suppression_status", conn, if_exists="replace", index=False)
 
-    st.info(f"Loading `{DB_PATH}` + `{CSV_PATH}`…")
-    df = load_data(DB_PATH, CSV_PATH)
-
-    st.write(f"Total parcels: **{len(df):,}**")
-    st.write("Red = suppressed · Blue = not suppressed · Gray = unknown")
-
-    m = build_map(df)
-    st_folium(m, width=900, height=600)
-
-if __name__ == "__main__":
-    main()
+# 4) hand off to your map viewer
+import map_viewer as mv
+mv.show(cur)
