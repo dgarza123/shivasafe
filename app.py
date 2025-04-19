@@ -11,7 +11,7 @@ import folium
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Your Drive file IDs
+# Google Drive file IDs
 DB_ID  = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"
 SUP_ID = "1_Q3pT2sNF3nfCUzWyzBQF5u7lcy-q122"
 
@@ -28,13 +28,14 @@ def download_if_missing(url: str, path: str, desc: str):
         gdown.download(url, path, quiet=False)
 
 
-@st.cache_data(show_spinner=False)
-def load_and_persist_suppression():
+@st.cache_data
+def prepare_db():
+    # 1) Download CSV & DB if needed
     download_if_missing(SUP_URL, SUP_LOCAL, "suppression CSV")
+    download_if_missing(DB_URL, DB_LOCAL, "SQLite DB")
+
+    # 2) Load suppression status into the DB
     sup = pd.read_csv(SUP_LOCAL, dtype=str)
-
-    download_if_missing(DB_URL, DB_LOCAL, "SQLite database")
-
     with sqlite3.connect(DB_LOCAL) as conn:
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("DROP TABLE IF EXISTS suppression_status;")
@@ -45,35 +46,30 @@ def load_and_persist_suppression():
             index=False,
             dtype={"parcel_id": "TEXT", "status": "TEXT"},
         )
-    return sup
 
 
-@st.cache_data(show_spinner=False)
-def load_parcel_data():
-    download_if_missing(DB_URL, DB_LOCAL, "SQLite database")
-
+@st.cache_data
+def load_master_with_status():
     with sqlite3.connect(DB_LOCAL) as conn:
-        # show what tables actually exist
-        tables = [row[0] for row in conn.execute(
+        # what tables exist?
+        tables = {row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table';"
-        ).fetchall()]
-        if "parcels" not in tables:
-            st.error(
-                "❌ I looked inside your database and I don’t see a `parcels` table.\n\n"
-                f"Tables found: {tables}\n\n"
-                "Please double‐check that you’ve supplied the right DB file."
-            )
-            return pd.DataFrame(columns=["parcel_id","lat","lon","status"])
+        )}
+        # if our master is missing, bail
+        master = "Hawaii_tmk_master"
+        if master not in tables:
+            st.error(f"❌ Table `{master}` not found. Available: {sorted(tables)}")
+            return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
 
-        # if it exists, pull it
+        # pull from master + status
         df = pd.read_sql(
-            """
-            SELECT 
-              p.parcel_id,
-              CAST(p.latitude  AS REAL) AS lat,
-              CAST(p.longitude AS REAL) AS lon,
+            f"""
+            SELECT
+              m.parcel_id,
+              CAST(m.latitude  AS REAL) AS lat,
+              CAST(m.longitude AS REAL) AS lon,
               COALESCE(s.status, 'unknown') AS status
-            FROM parcels p
+            FROM "{master}" m
             LEFT JOIN suppression_status s USING(parcel_id)
             """,
             conn,
@@ -85,28 +81,28 @@ def main():
     st.set_page_config(page_title="Hawaii TMK Map", layout="wide")
     st.title("📍 Hawaii TMK Suppression Map")
 
-    # ensure we have the suppression table
-    load_and_persist_suppression()
+    # Download & prepare
+    prepare_db()
 
-    # load parcels + status (or empty DF on error)
-    df = load_parcel_data()
+    # Load the parcel master + status
+    df = load_master_with_status()
     if df.empty:
-        st.warning("No parcel data to show.")
+        st.warning("No data to display.")
         return
 
-    # build map
+    # Build a simple Folium map
     m = folium.Map(location=[21.3069, -157.8583], zoom_start=10)
     colors = {"suppressed": "red", "active": "green", "unknown": "gray"}
 
-    for _, row in df.iterrows():
-        if pd.isna(row.lat) or pd.isna(row.lon):
+    for _, r in df.iterrows():
+        if pd.isna(r.lat) or pd.isna(r.lon):
             continue
         folium.CircleMarker(
-            location=(row.lat, row.lon),
+            location=(r.lat, r.lon),
             radius=3,
-            color=colors.get(row.status, "blue"),
+            color=colors.get(r.status, "blue"),
             fill=True,
-            fill_opacity=0.7,
+            fill_opacity=0.6,
         ).add_to(m)
 
     st_folium(m, width=800, height=600)
