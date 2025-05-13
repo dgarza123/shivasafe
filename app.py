@@ -1,100 +1,108 @@
-# app.py
-
-import os
-import sqlite3
-import pandas as pd
 import streamlit as st
-import gdown
-from streamlit_folium import st_folium
-import folium
+import socket, ssl, whois, csv, requests, dns.resolver
+import pandas as pd
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from ipwhois import IPWhois
 
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# Your Drive file IDs
-DB_ID = "1QeV0lIlcaTUAp6O7OJGBtzagpQ_XJc1h"      # SQLite DB
-SUP_ID = "1_Q3pT2sNF3nfCUzWyzBQF5u7lcy-q122"     # CSV
-
-DB_LOCAL = os.path.join(DATA_DIR, "hawaii.db")
-SUP_LOCAL = os.path.join(DATA_DIR, "suppression_status.csv")
-
-def download_if_missing(file_id: str, path: str, desc: str):
-    if not os.path.exists(path) or os.path.getsize(path) < 10_000:
-        st.info(f"⏬ Downloading {desc}…")
-        gdown.download(id=file_id, output=path, quiet=False)
+st.set_page_config(page_title="Gov Domain Threat Scanner", layout="wide")
+st.title("🛡️ U.S. Government Domain Threat Scanner")
 
 @st.cache_data(show_spinner=False)
-def load_master_with_status():
-    # 1) Fetch both
-    download_if_missing(DB_ID, DB_LOCAL, "SQLite DB")
-    download_if_missing(SUP_ID, SUP_LOCAL, "suppression CSV")
+def get_tls(domain):
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=4) as sock:
+            with ctx.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert(True)
+                x509_obj = x509.load_der_x509_certificate(cert, default_backend())
+                return x509_obj.fingerprint(ssl.HASH_SHA256()).hex()
+    except: return ""
 
-    # 2) Connect & (debug) list tables
-    with sqlite3.connect(DB_LOCAL) as conn:
-        try:
-            tables = pd.read_sql(
-                "SELECT name FROM sqlite_master WHERE type='table'", conn
-            )["name"].tolist()
-            st.write("Tables in DB:", tables)
-        except Exception as e:
-            st.error(f"Failed to list tables: {e}")
-            return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
+def get_asn_info(domain):
+    try:
+        ip = socket.gethostbyname(domain)
+        obj = IPWhois(ip)
+        res = obj.lookup_rdap()
+        return ip, res.get('asn', ''), res.get('asn_country_code', ''), res.get('asn_description', '')
+    except: return "", "", "", ""
 
-        # 3) Read your master
-        try:
-            master = pd.read_sql(
-                """
-                SELECT
-                  parcel_id,
-                  CAST(latitude  AS REAL) AS lat,
-                  CAST(longitude AS REAL) AS lon
-                FROM Hawaii_tmk_master
-                """,
-                conn,
-            )
-        except Exception as e:
-            st.error(f"Error querying Hawaii_tmk_master: {e}")
-            return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
+def get_mx_records(domain):
+    try:
+        answers = dns.resolver.resolve(domain, 'MX')
+        return [str(r.exchange).strip('.') for r in answers]
+    except:
+        return []
 
-    # 4) Load CSV & normalize
-    sup = pd.read_csv(SUP_LOCAL, dtype=str)
-    cols = list(sup.columns)
-    if len(cols) < 2:
-        st.error("Suppression CSV needs at least two columns (parcel_id + status).")
-        return pd.DataFrame([], columns=["parcel_id","lat","lon","status"])
-    sup = sup.rename(columns={cols[0]: "parcel_id", cols[1]: "status"})
-    sup["status"] = sup["status"].fillna("unknown")
+def get_cname(domain):
+    try:
+        answers = dns.resolver.resolve(domain, 'CNAME')
+        return str(answers[0].target).strip('.')
+    except:
+        return ""
 
-    # 5) Merge
-    df = master.merge(sup[["parcel_id","status"]], on="parcel_id", how="left")
-    df["status"] = df["status"].fillna("unknown")
+def get_whois(domain):
+    try:
+        w = whois.whois(domain)
+        return w.registrar or "", w.org or ""
+    except:
+        return "", ""
 
-    return df
+gov_domains = [
+    "azdhs.gov", "ncdps.gov", "nhtsa.gov", "cdc.gov", "nih.gov", "noaa.gov", "usgs.gov", "nasa.gov", "energy.gov", "bop.gov",
+    "fanniemae.com", "hud.gov", "govdelivery.com", "digital.gov", "govos.com", "tylertech.com", "signal.org",
+    "whitehouse.gov", "teamtulsi.com", "fbi.gov", "uscourts.gov", "justice.gov", "dea.gov", "atf.gov",
+    "dhs.gov", "cbp.gov", "ice.gov", "interpol.int", "finCEN.gov", "secretservice.gov", "usmarshals.gov",
+    "crimesolutions.gov", "tips.fbi.gov", "crime-data-explorer.fr.cloud.gov", "usa.gov", "victimconnect.org",
+    "identitytheft.gov", "missingkids.org", "ic3.gov", "ssa.gov", "medicare.gov", "benefits.gov",
+    "studentloans.gov", "ed.gov", "dol.gov", "epa.gov", "irs.gov", "treasury.gov", "usps.gov", "uscis.gov",
+    "homelandsecurity.gov", "usajobs.gov"
+]
 
-def main():
-    st.set_page_config(page_title="Hawaii TMK Map", layout="wide")
-    st.title("Hawaii TMK Suppression Map")
+newfold_keywords = ["GoDaddy", "Gandi", "Register.com", "Bluehost", "Network Solutions", "Web.com", "CrazyDomains", "Domain.com"]
 
-    df = load_master_with_status()
-    if df.empty:
-        st.warning("No data to display.")
-        return
+rows = []
+st.info("Scanning in progress... please wait.")
+progress = st.progress(0)
 
-    # 6) Folium map
-    m = folium.Map(location=[21.3069, -157.8583], zoom_start=10)
-    colors = {"suppressed": "red", "active": "green", "unknown": "gray"}
-    for _, r in df.iterrows():
-        if pd.isna(r.lat) or pd.isna(r.lon):
-            continue
-        folium.CircleMarker(
-            [r.lat, r.lon],
-            radius=3,
-            color=colors.get(r.status, "blue"),
-            fill=True,
-            fill_opacity=0.6,
-        ).add_to(m)
+for i, domain in enumerate(gov_domains, 1):
+    tls_fp = get_tls(domain)
+    ip, asn, asn_cc, asn_desc = get_asn_info(domain)
+    mx = get_mx_records(domain)
+    cname = get_cname(domain)
+    registrar, org = get_whois(domain)
 
-    st_folium(m, width=800, height=600)
+    rows.append({
+        "domain": domain,
+        "tls_fp": tls_fp,
+        "asn": asn,
+        "asn_country": asn_cc,
+        "asn_desc": asn_desc,
+        "mx": ", ".join(mx),
+        "cname": cname,
+        "registrar": registrar,
+        "org": org
+    })
+    progress.progress(i / len(gov_domains))
 
-if __name__ == "__main__":
-    main()
+st.success("Scan complete.")
+
+df = pd.DataFrame(rows)
+def check_newfold(row):
+    return any(keyword.lower() in str(row['registrar']).lower() or keyword.lower() in str(row['org']).lower() for keyword in newfold_keywords)
+
+df['whois_newfold'] = df.apply(check_newfold, axis=1)
+df['whois_markmonitor'] = df.apply(lambda x: 'MarkMonitor' in str(x['registrar']) or 'MarkMonitor' in str(x['org']), axis=1)
+df['whois_redacted'] = df.apply(lambda x: 'REDACTED FOR PRIVACY' in str(x['registrar']) or 'REDACTED FOR PRIVACY' in str(x['org']), axis=1)
+
+charged = df[df['whois_newfold'] == True]
+st.subheader("⚠️ Newfold-Controlled Government Domains")
+st.write(f"Matches found: {len(charged)}")
+st.dataframe(charged[['domain', 'registrar', 'org', 'asn_desc']])
+
+# Save download
+csv = df.to_csv(index=False).encode('utf-8')
+st.download_button("Download Full Scan CSV", csv, "gov_threat_scan.csv", "text/csv")
+
+backup = charged.to_csv(index=False).encode('utf-8')
+st.download_button("Download Newfold Matches Only", backup, "newfold_matches.csv", "text/csv")
